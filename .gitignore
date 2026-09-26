@@ -1,0 +1,26 @@
+.aw-gate-state.json
+.aw/receipts/
+.aw-org-cache/
+.aw/tmp/
+.aw/workflow-trace.jsonl
+.aw/pin/
+.aw/session
+
+node_modules
+dist
+
+# The colony layout holds the names and paths of the repos you work in, so it stays local.
+data/*.json
+data/*.tmp
+
+# Per-machine Claude Code permissions.
+.claude/settings.local.json
+
+# Raw art packs are fetched from their original sources when the assets are rebuilt.
+assets-src
+
+.DS_Store
+*.log
+
+# Local capture output.
+recordings

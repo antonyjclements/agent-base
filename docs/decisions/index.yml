@@ -1,0 +1,49 @@
+decisions:
+  - path: docs/decisions/2026-09-26-fork-bot-crossing-and-trim-to-two-tools.md
+    title: Fork Bot Crossing and trim it to Claude Code and Codex
+    date: 2026-09-26
+    status: active
+    tags:
+      - architecture
+      - upstream
+  - path: docs/decisions/2026-09-26-opt-in-hook-installer-is-the-only-config-writer.md
+    title: The opt-in hook installer is the only thing that writes a tool's config
+    date: 2026-09-26
+    status: active
+    tags:
+      - security
+      - hooks
+      - installer
+  - path: docs/decisions/2026-09-26-open-sessions-through-url-schemes-only.md
+    title: Sessions open through URL schemes only, and the server starts no other process
+    date: 2026-09-26
+    status: superseded
+    tags:
+      - security
+      - server
+      - controls
+  - path: docs/decisions/2026-09-26-terminal-handoff-copy-command-and-opt-in-launcher.md
+    title: "Terminal hand-off: a copied command, and an opt-in cmux launcher"
+    date: 2026-09-26
+    status: active
+    tags:
+      - security
+      - server
+      - controls
+      - terminal
+  - path: docs/decisions/2026-09-26-live-status-through-a-shared-hook-and-events-file.md
+    title: Live status comes from one shared hook that appends to a private events file
+    date: 2026-09-26
+    status: active
+    tags:
+      - hooks
+      - architecture
+      - security
+  - path: docs/decisions/2026-09-26-original-bot-from-cc0-art-rover.md
+    title: The bot is an original design on CC0 art, and the shipped look is Rover
+    date: 2026-09-26
+    status: active
+    tags:
+      - art
+      - identity
+      - licensing

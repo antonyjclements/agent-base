@@ -1,0 +1,93 @@
+learnings:
+  - path: docs/learnings/2026-09-26-claude-and-codex-url-schemes-observed.md
+    title: How the claude:// and codex:// deep links actually behave
+    scope: repo
+    status: tentative
+    tags:
+      - url-schemes
+      - claude-code
+      - codex
+      - moon-base
+  - path: docs/learnings/2026-09-26-cmux-cli-and-socket-observed.md
+    title: cmux is scriptable through a CLI and a socket that only accepts its own child processes
+    scope: repo
+    status: tentative
+    tags:
+      - cmux
+      - terminal
+      - moon-base
+  - path: docs/learnings/2026-09-26-codex-home-path-length-limit.md
+    title: A long CODEX_HOME path breaks the Codex TUI's app-server socket
+    scope: repo
+    status: tentative
+    tags:
+      - codex
+      - testing
+      - macos
+  - path: docs/learnings/2026-09-26-codex-hook-trust-model.md
+    title: Codex trusts hooks individually and skips untrusted ones silently
+    scope: repo
+    status: tentative
+    tags:
+      - hooks
+      - codex
+      - trust
+      - moon-base
+  - path: docs/learnings/2026-09-26-codex-runs-change-global-state.md
+    title: Codex invocations can change global state on the machine
+    scope: repo
+    status: tentative
+    tags:
+      - codex
+      - global-state
+      - testing
+      - moon-base
+  - path: docs/learnings/2026-09-26-hand-trust-steps-to-the-user.md
+    title: Hand trust and permission steps to the user instead of automating them
+    scope: repo
+    status: tentative
+    tags:
+      - process
+      - safety
+      - testing
+  - path: docs/learnings/2026-09-26-hook-events-claude-code-and-codex.md
+    title: Claude Code and Codex hook events, as observed
+    scope: repo
+    status: tentative
+    tags:
+      - hooks
+      - claude-code
+      - codex
+      - moon-base
+  - path: docs/learnings/2026-09-26-mutation-check-regression-tests.md
+    title: A regression test is only real once it fails with the fix removed
+    scope: repo
+    status: tentative
+    tags:
+      - testing
+      - process
+  - path: docs/learnings/2026-09-26-preview-designs-on-a-purpose-built-page.md
+    title: Compare visual designs on a purpose-built lineup page, not by steering the live app's camera
+    scope: repo
+    status: tentative
+    tags:
+      - visual-checks
+      - testing
+      - moon-base
+  - path: docs/learnings/2026-09-26-quote-heredocs-with-backticks.md
+    title: Quote the heredoc delimiter when the body contains backticks or dollar signs
+    scope: repo
+    status: tentative
+    tags:
+      - shell
+      - process
+  - path: docs/learnings/2026-09-26-session-store-and-id-facts.md
+    title: Where session data lives and how session IDs behave
+    scope: repo
+    status: tentative
+    tags:
+      - storage
+      - session-ids
+      - codex
+      - claude-code
+      - moon-base

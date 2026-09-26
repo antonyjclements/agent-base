@@ -1,0 +1,32 @@
+#!/bin/sh
+# Moon Base hook wrapper: finds Node and runs the hook script beside it.
+#
+# This is the command Claude Code and Codex are told to run, and its text never changes, because
+# Codex trusts a hook by a hash of its definition: what it runs can be updated freely, but the
+# command that names it must stay put. It prints nothing and always exits 0, so it can never show
+# up in a session or block one — including when Node cannot be found at all, and when PATH is so
+# bare that even `dirname` is missing, which is why it uses shell built-ins only.
+exec 2>/dev/null
+case "$0" in
+  */*) dir=${0%/*} ;;
+  *) dir=. ;;
+esac
+dir=$(cd "$dir" && pwd) || exit 0
+node_bin=
+if [ -r "$dir/node-path" ]; then
+  read -r node_bin < "$dir/node-path"
+fi
+if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+  node_bin=$(command -v node)
+fi
+if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+  for candidate in /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
+    if [ -x "$candidate" ]; then
+      node_bin=$candidate
+      break
+    fi
+  done
+fi
+[ -n "$node_bin" ] || exit 0
+"$node_bin" "$dir/moon-base-hook.mjs" "$1" >/dev/null 2>&1
+exit 0
