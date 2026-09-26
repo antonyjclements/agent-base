@@ -132,6 +132,45 @@ test('an event that is older than what is already known is ignored', async () =>
   }, { cmux: false })
 })
 
+test('a session that has ended stays ended against an older event that is read afterwards', async () => {
+  await withLayers(async ({ live, hook, cm, clock }) => {
+    // The hooks file is read first, so the end is known before the older cmux row arrives.
+    await hook({ event: 'SessionEnd', ts: NOW + 2000 })
+    await cm({ kind: 'toolUse', at: NOW + 1000 })
+    clock.now = NOW + 3000
+    const [t] = await scan(live, [claude()])
+    assert.equal(t.running, false, 'the end at +2s is newer than the row at +1s')
+    assert.equal(live.size, 0, 'and the old row made no entry for it')
+  })
+})
+
+test('an end read from cmux is remembered against an older hook event read in a later poll', async () => {
+  await withLayers(async ({ live, hook, cm, clock }) => {
+    await cm({ kind: 'sessionEnd', at: NOW + 2000 })
+    clock.now = NOW + 3000
+    await live.refresh()
+    await hook({ event: 'PostToolUse', ts: NOW + 1000 }) // written late, happened before the end
+    const [t] = await scan(live, [claude()])
+    assert.equal(t.running, false)
+    assert.equal(live.size, 0)
+  })
+})
+
+test('an event newer than the end brings the session back, as when it is resumed', async () => {
+  await withLayers(async ({ live, hook, cm, clock }) => {
+    await hook({ event: 'SessionEnd', ts: NOW + 2000 })
+    await cm({ kind: 'userPrompt', at: NOW + 4000 })
+    clock.now = NOW + 5000
+    const [t] = await scan(live, [claude()])
+    assert.equal(t.running, true)
+    assert.equal(t.liveSource, 'cmux')
+    // ...and once it is back, an event from before it ended is still older than what is known.
+    await cm({ kind: 'stop', at: NOW + 1000 })
+    const [again] = await scan(live, [claude()])
+    assert.equal(again.running, true)
+  })
+})
+
 test('every state expires, and the files decide again', async () => {
   await withLayers(async ({ live, cm, clock }) => {
     await cm({ kind: 'userPrompt' })

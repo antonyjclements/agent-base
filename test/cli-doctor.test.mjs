@@ -38,7 +38,7 @@ async function withWorld(fn) {
 }
 
 /** Run the doctor against a fake world. */
-async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map() } = {}) {
+async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map(), asked } = {}) {
   const lines = []
   const code = await doctor([], {
     env: { MOON_BASE_HOME: world.moonHome, MOON_BASE_CMUX_DIR: world.cmux.dir, ...env },
@@ -47,7 +47,7 @@ async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, b
     now: () => NOW,
     out: (l) => lines.push(l),
     err: (l) => lines.push(l),
-    probe: async (p) => ports[p] ?? { kind: 'other' },
+    probe: async (p, o) => (asked?.push(o?.host), ports[p] ?? { kind: 'other' }),
     build: { state: async () => build },
     markers: async () => markers,
   })
@@ -87,6 +87,19 @@ test('it says which port start would use, or which copy it would reuse', async (
     const running = { 5274: { kind: 'free' }, 5276: { kind: 'moon-base', identity: { app: 'moon-base', version: '0.1.0', launcher: null } } }
     assert.match(line((await diagnose(w, { ports: running })).text, 'port'), /already running.*5276/i)
     assert.match(line((await diagnose(w, { ports: {} })).text, 'port'), /no free port/i)
+  })
+})
+
+test('it looks for a running copy where start would, and never prints the address it was configured with', async () => {
+  await withWorld(async (w) => {
+    const running = { 5274: { kind: 'moon-base', identity: { app: 'moon-base', version: '0.1.0', launcher: null } } }
+    for (const [host, expected] of [['::1', '[::1]'], ['10.9.8.7', '10.9.8.7'], ['0.0.0.0', '127.0.0.1'], [undefined, '127.0.0.1']]) {
+      const asked = []
+      const r = await diagnose(w, { env: host ? { MOON_BASE_HOST: host } : {}, ports: running, asked })
+      assert.ok(asked.length > 0 && asked.every((a) => a === expected), `${host}: asked ${asked}`)
+      assert.match(line(r.text, 'port'), /already running on port 5274/i, String(host))
+      if (host) assert.ok(!r.text.includes(host), `${host}: an environment value is not printed`)
+    }
   })
 })
 

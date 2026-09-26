@@ -23,6 +23,12 @@ export const TTL = {
 /** A tool counts as reporting if it said anything within this long. */
 const ACTIVE_MS = 10 * 60 * 1000
 
+/**
+ * How long a session's end is remembered. An event older than the end must not bring the session back,
+ * and any state such an event could set has expired within the longest limit above, so that long is enough.
+ */
+const ENDED_MS = Math.max(...Object.values(TTL))
+
 const HARNESS = { claude: 'claude-code', codex: 'codex' }
 const TOOL_OF = Object.fromEntries(Object.entries(HARNESS).map(([tool, harness]) => [harness, tool]))
 const ASKS_YOU = new Set(['permission_prompt', 'elicitation_dialog'])
@@ -93,7 +99,8 @@ export class LiveStatus {
   #tails
   #now
   #entries = new Map()
-  #last = { hooks: { claude: 0, codex: 0 }, cmux: { claude: 0, codex: 0 } }
+  #ended = new Map() // key -> when the session ended, kept so an older event read late is still turned away
+  #last ={ hooks: { claude: 0, codex: 0 }, cmux: { claude: 0, codex: 0 } }
   #queue = Promise.resolve()
 
   /**
@@ -139,11 +146,16 @@ export class LiveStatus {
     const key = `${e.tool}:${e.sessionId}`
     // Two files feed one map, so what arrives last is not always what happened last. An event only
     // replaces what is known if it is at least as new: an old row read late must not put a bot back
-    // in a state it has already left.
-    const known = this.#entries.get(key)
-    if (known && e.at < known.at) return
-    if (state === 'ended') this.#entries.delete(key)
-    else this.#entries.set(key, { state, at: e.at, source })
+    // in a state it has already left. That includes ended, so an end is remembered with its time.
+    const knownAt = this.#entries.get(key)?.at ?? this.#ended.get(key)
+    if (knownAt !== undefined && e.at < knownAt) return
+    if (state === 'ended') {
+      this.#entries.delete(key)
+      this.#ended.set(key, e.at)
+    } else {
+      this.#ended.delete(key)
+      this.#entries.set(key, { state, at: e.at, source })
+    }
   }
 
   /** The threads with live status laid over them. Threads and events that do not match are left as they are. */
@@ -151,6 +163,9 @@ export class LiveStatus {
     const now = this.#now()
     for (const [key, entry] of this.#entries) {
       if (now - entry.at > TTL[entry.state]) this.#entries.delete(key)
+    }
+    for (const [key, at] of this.#ended) {
+      if (now - at > ENDED_MS) this.#ended.delete(key)
     }
     if (!this.#entries.size && !threads.some(markerBusy)) return threads
 

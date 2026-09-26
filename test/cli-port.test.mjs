@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort } from '../cli/port.mjs'
+import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort, urlHost } from '../cli/port.mjs'
 
 const json = (body, init = {}) => ({ ok: true, status: 200, json: async () => body, ...init })
 const refused = () => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) })
@@ -13,6 +13,16 @@ const refused = () => Object.assign(new TypeError('fetch failed'), { cause: Obje
 test('the default port is 5274 and the search reaches twenty past it', () => {
   assert.equal(DEFAULT_PORT, 5274)
   assert.equal(PORT_SPAN, 20)
+})
+
+test('a host goes into a URL as the address the server is on: IPv6 in brackets, "every address" as loopback', () => {
+  assert.equal(urlHost('127.0.0.1'), '127.0.0.1')
+  assert.equal(urlHost('localhost'), 'localhost')
+  assert.equal(urlHost('10.9.8.7'), '10.9.8.7')
+  assert.equal(urlHost('::1'), '[::1]')
+  assert.equal(urlHost('fe80::1'), '[fe80::1]')
+  assert.equal(urlHost('0.0.0.0'), '127.0.0.1')
+  assert.equal(urlHost('::'), '127.0.0.1')
 })
 
 test('a port answers as Moon Base, as free, or as something else', async () => {

@@ -18,7 +18,7 @@ const CMUX = { CMUX_WORKSPACE_ID: 'ws-1', CMUX_SURFACE_ID: 'sf-1' }
 function harness({ env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, buildCode = 0, serve, open } = {}) {
   const out = []
   const err = []
-  const calls = { built: 0, served: [], opened: [] }
+  const calls = { built: 0, served: [], opened: [], probed: [] }
   const io = {
     env: { ...env },
     root: '/repo',
@@ -28,7 +28,7 @@ function harness({ env = {}, ports = { 5274: { kind: 'free' } }, build = { state
       state: async () => build,
       run: async () => (calls.built++, buildCode),
     },
-    probe: async (p) => ports[p] ?? { kind: 'other' },
+    probe: async (p, o) => (calls.probed.push(o?.host), ports[p] ?? { kind: 'other' }),
     serve:
       serve ??
       (async ({ port, host }) => {
@@ -234,6 +234,34 @@ test('a host that is not loopback is passed on, with the warning the README give
   }
 })
 
+test('the page and the search for a running copy use the address the server is on, not a guess at loopback', async () => {
+  const cases = [
+    // host, the URL printed and opened, and where the search asks
+    ['::1', 'http://[::1]:5274', '[::1]'],
+    ['localhost', 'http://localhost:5274', 'localhost'],
+    ['127.0.0.1', 'http://127.0.0.1:5274', '127.0.0.1'],
+    ['10.9.8.7', 'http://10.9.8.7:5274', '10.9.8.7'],
+    ['0.0.0.0', 'http://127.0.0.1:5274', '127.0.0.1'],
+    ['::', 'http://127.0.0.1:5274', '127.0.0.1'],
+  ]
+  for (const [host, url, asked] of cases) {
+    const h = harness({ env: { MOON_BASE_HOST: host } })
+    assert.equal(await start([], h.io), 0, host)
+    assert.equal(h.calls.served[0].host, host, `${host}: the server is given the host as it was set`)
+    assert.deepEqual(h.calls.opened, [url], host)
+    assert.ok(h.out.includes(`Moon Base → ${url}`), `${host}: printed ${h.out.join(' | ')}`)
+    assert.ok(h.calls.probed.length > 0 && h.calls.probed.every((a) => a === asked), `${host}: asked ${h.calls.probed}`)
+  }
+})
+
+test('a copy already running on ::1 is found there and reused at that address', async () => {
+  const h = harness({ env: { MOON_BASE_HOST: '::1' }, ports: { 5274: { kind: 'moon-base', identity: { app: 'moon-base', launcher: null } } } })
+  assert.equal(await start([], h.io), 0)
+  assert.equal(h.calls.served.length, 0, 'no second server')
+  assert.deepEqual(h.calls.opened, ['http://[::1]:5274'])
+  assert.match(h.text(), /already running at http:\/\/\[::1\]:5274/i)
+})
+
 // ── what it prints ────────────────────────────────────────────────────────────
 
 test('it prints plain lines and never the environment', async () => {
@@ -270,26 +298,34 @@ test('a start that fails says why by its error code, and never echoes the host i
 
 // ── against a real server ─────────────────────────────────────────────────────
 
+/**
+ * Not from the system's own choice: those ports are handed out one after another, so a server another
+ * test file is running right now would sit inside the range moonbase1 searches, and be found, and reused. A
+ * port from a range nothing else here uses, checked free, keeps a test to itself.
+ */
+async function freePort(host = '127.0.0.1') {
+  for (let tries = 0; tries < 50; tries++) {
+    const port = 20000 + Math.floor(Math.random() * 20000)
+    if (await canBind(host, port)) return port
+  }
+  throw new Error('no free port found in 20000-40000')
+}
+
+/** Whether `host` can be listened on at all, at `port` (0 is any). Some machines have no IPv6 loopback. */
+function canBind(host, port = 0) {
+  return new Promise((resolve) => {
+    const probe = net.createServer()
+    probe.once('error', () => resolve(false))
+    probe.listen(port, host, () => probe.close(() => resolve(true)))
+  })
+}
+
 test('against a real server: it starts, is found by identity, and a second start reuses it', async () => {
   const data = await fsp.mkdtemp(path.join(os.tmpdir(), 'start-real-'))
   const dist = path.join(data, 'dist')
   await fsp.mkdir(dist)
   await fsp.writeFile(path.join(dist, 'index.html'), '<title>real</title>')
-  // Not from the system's own choice: those ports are handed out one after another, so a server another
-  // test file is running right now would sit inside the range this searches, and be found, and reused. A
-  // port from a range nothing else here uses, checked free, keeps this test to itself.
-  const free = await (async () => {
-    for (let tries = 0; tries < 50; tries++) {
-      const port = 20000 + Math.floor(Math.random() * 20000)
-      const ok = await new Promise((resolve) => {
-        const probe = net.createServer()
-        probe.once('error', () => resolve(false))
-        probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)))
-      })
-      if (ok) return port
-    }
-    throw new Error('no free port found in 20000-40000')
-  })()
+  const free = await freePort()
 
   // The server reads these when it is first loaded, and the launcher from the process environment, as in real use.
   const saved = Object.fromEntries(['MOON_BASE_DATA', 'MOON_BASE_CMUX_DIR', 'MOON_BASE_TERMINAL', 'CMUX_WORKSPACE_ID', 'CMUX_SURFACE_ID'].map((k) => [k, process.env[k]]))
@@ -336,6 +372,56 @@ test('against a real server: it starts, is found by identity, and a second start
     assert.equal(again, 0)
     assert.equal(started, false)
     assert.match(second.out.join('\n'), /already running/i)
+  } finally {
+    await handle?.close()
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    await fsp.rm(data, { recursive: true, force: true })
+  }
+})
+
+test('against a real server on ::1: the address it prints is reachable, and a second start finds the copy there', async (t) => {
+  if (!(await canBind('::1'))) return t.skip('no IPv6 loopback on this machine')
+  const data = await fsp.mkdtemp(path.join(os.tmpdir(), 'start-real6-'))
+  const dist = path.join(data, 'dist')
+  await fsp.mkdir(dist)
+  await fsp.writeFile(path.join(dist, 'index.html'), '<title>real</title>')
+  const free = await freePort('::1')
+
+  const saved = Object.fromEntries(['MOON_BASE_DATA', 'MOON_BASE_CMUX_DIR'].map((k) => [k, process.env[k]]))
+  process.env.MOON_BASE_DATA = data
+  process.env.MOON_BASE_CMUX_DIR = path.join(data, 'no-cmux')
+  const real = await import('../server/serve.mjs')
+  let handle
+  const shared = { env: { MOON_BASE_HOST: '::1' }, root: '/repo', err: () => {}, build: { state: async () => ({ state: 'fresh' }) }, open: () => true }
+  try {
+    const first = []
+    const code = await start(['--no-open', '--port', String(free)], {
+      ...shared,
+      out: (l) => first.push(l),
+      serve: async (options) => (handle = await real.serve({ ...options, dist })),
+    })
+    assert.equal(code, 0)
+    const url = `http://[::1]:${free}`
+    assert.ok(first.includes(`Moon Base → ${url}`), first.join(' | '))
+    const identity = await (await fetch(`${url}/api/identity`)).json()
+    assert.equal(identity.app, 'moon-base', 'the address it printed has the server on it')
+
+    const second = []
+    let started = false
+    const again = await start(['--no-open', '--port', String(free)], {
+      ...shared,
+      out: (l) => second.push(l),
+      serve: async () => {
+        started = true
+        throw new Error('a second server must not be started')
+      },
+    })
+    assert.equal(again, 0)
+    assert.equal(started, false, 'the copy on ::1 was found, so no second server')
+    assert.ok(second.join('\n').includes(`already running at ${url}`), second.join(' | '))
   } finally {
     await handle?.close()
     for (const [k, v] of Object.entries(saved)) {

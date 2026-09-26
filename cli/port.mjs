@@ -6,6 +6,16 @@ export const DEFAULT_PORT = 5274
 export const PORT_SPAN = 20
 
 /**
+ * Where a server bound to `host` is reached, written as it goes into a URL: the address it is actually on,
+ * with an IPv6 literal in brackets. Only "every address" is not a place to go to, so that is loopback.
+ * Guessing loopback for everything else pointed a server bound to `::1` at `127.0.0.1`, where nothing listens.
+ */
+export function urlHost(host) {
+  if (host === '0.0.0.0' || host === '::') return '127.0.0.1'
+  return host.includes(':') ? `[${host}]` : host
+}
+
+/**
  * Who is on `port`: `{ kind: 'moon-base', identity }`, `{ kind: 'free' }` when nothing is listening, or
  * `{ kind: 'other' }` for anything else (another program, a Moon Base that will not answer, a hung port).
  * Bounded, so one hung port cannot hold the start up.

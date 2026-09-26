@@ -1,15 +1,18 @@
 /**
  * Being fast: serve the build that is there, and make one only when there is none or the source has moved
  * on since. The check is modification times against `dist/index.html`, over a fixed set of what goes into
- * the page. Dotfiles are skipped (a Finder's `.DS_Store` must not force a rebuild), and so is everything
- * that is not the page: the server, the tests, the docs, the data, `node_modules` and `dist` itself.
+ * the page: the source and assets, the config, the lockfile (a lockfile-only update changes the bundle), and
+ * the scripts that make the assets. Dotfiles are skipped (a Finder's `.DS_Store` must not force a rebuild),
+ * and so is everything that is not the page: the server, the tests, the docs, the data, `node_modules`,
+ * `dist` itself and `assets-src` (raw art packs, large, and read only by the asset step; whoever
+ * re-downloads one runs `npm run build`).
  */
 import { spawnSync } from 'node:child_process'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
 /** Relative to the project folder. */
-const SOURCES = ['src', 'public', 'index.html', 'vite.config.js', 'package.json']
+const SOURCES = ['src', 'public', 'index.html', 'vite.config.js', 'package.json', 'package-lock.json', 'tools']
 
 async function newest(entry) {
   let stat

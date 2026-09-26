@@ -51,6 +51,24 @@ test('cmux that is there but has said nothing lately is shown as quiet, and the 
   }
 })
 
+test('cmux that is there but silent shows the chip by itself, when nothing else is reporting', () => {
+  const quiet = (lastAt) => ({ active: false, tools: { 'claude-code': 0, codex: 0 }, sources: [{ id: 'hooks', present: false, lastAt: 0 }, cmux(lastAt)] })
+  for (const lastAt of [0, NOW - 11 * MIN]) {
+    const chip = liveChip(quiet(lastAt), NOW)
+    assert.ok(chip, `lastAt ${lastAt}: the chip is shown`)
+    assert.equal(chip.text, 'Live · Claude Code ○ Codex ○ · cmux ○')
+    assert.match(chip.title, /cmux is there but has said nothing lately/)
+    assert.ok(!/live status from/i.test(chip.title), 'it does not claim a source is reporting')
+  }
+})
+
+test('nothing reporting still hides the chip unless cmux is there to be named', () => {
+  const hooksQuiet = { id: 'hooks', present: true, lastAt: NOW - 11 * MIN }
+  for (const sources of [[hooksQuiet], [hooksQuiet, cmux(0, false)], [], undefined]) {
+    assert.equal(liveChip({ active: false, tools: { 'claude-code': 0, codex: 0 }, sources }, NOW), null, JSON.stringify(sources))
+  }
+})
+
 test('cmux that is absent, switched off, or unknown to an older server is never named', () => {
   const cases = [
     live({ sources: [{ id: 'hooks', present: true, lastAt: NOW - 1000 }, cmux(0, false)] }), // its file is not there

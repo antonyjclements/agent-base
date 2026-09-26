@@ -89,7 +89,9 @@ its sessions, which so far is thinly). Moon Base reads two things the tools alre
   permission request or a question shows it awaiting you, and a stop shows it finished.
 - **Claude Code's own busy/idle marker**, `~/.claude/sessions/<pid>.json`, which says a session is mid-turn.
 
-The Live chip names cmux while its stream is reporting (● reporting, ○ present but quiet). From cmux's rows
+The Live chip names cmux while its stream is reporting (● reporting, ○ present but quiet). When cmux's stream is
+there but has said nothing for ten minutes and nothing else is reporting, the chip stays up as `cmux ○` rather than
+disappearing, so an empty stream is visible instead of just looking like nothing is happening. From cmux's rows
 Moon Base reads only the event kind, the session id, the folder and the time. The rows also hold what you
 typed and what the tools returned, and none of that is kept, logged, shown or sent anywhere. Nothing is
 written to cmux's files or to any tool's config, and the cmux socket is not used, so it works however Moon

@@ -12,12 +12,11 @@ import { fileURLToPath } from 'node:url'
 import { insideCmux } from './cmux-env.mjs'
 import { buildState, runBuild } from './build.mjs'
 import { openPage } from './open-page.mjs'
-import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort } from './port.mjs'
+import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort, urlHost } from './port.mjs'
 import { USAGE } from './usage.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1']
-const ANY = ['0.0.0.0', '::']
 
 function parse(argv) {
   const opts = { noOpen: false, help: false, port: undefined }
@@ -67,12 +66,13 @@ export async function start(argv, io = {}) {
   }
 
   const host = env.MOON_BASE_HOST || '127.0.0.1'
-  const shownHost = LOOPBACK.includes(host) || ANY.includes(host) ? '127.0.0.1' : host
+  // Where the server is, for the page and for the search below: a copy on `::1` is not found by asking `127.0.0.1`.
+  const shownHost = urlHost(host)
   const urlFor = (port) => `http://${shownHost}:${port}`
   const inside = insideCmux(env)
 
   const base = opts.port ?? (Number(env.PORT) || DEFAULT_PORT)
-  const pick = await pickPort({ base, probe })
+  const pick = await pickPort({ base, probe: (port) => probe(port, { host: shownHost }) })
   if (pick.kind === 'none') {
     err(`No free port from ${base} to ${base + PORT_SPAN}. Free one, or start the search somewhere else with --port.`)
     return 1

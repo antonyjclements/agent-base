@@ -35,6 +35,8 @@ const sources = async (put, at) => {
   await put('index.html', at)
   await put('vite.config.js', at)
   await put('package.json', at)
+  await put('package-lock.json', at)
+  await put('tools/build-assets.mjs', at)
 }
 
 test('no dist at all is a build to make', async () => {
@@ -55,7 +57,9 @@ test('a dist newer than every source is fresh, and an equal one is too', async (
 })
 
 test('a source newer than the build makes it stale, wherever it is under a watched folder', async () => {
-  for (const changed of ['src/main.js', 'src/ui/hud.js', 'public/assets/a.glb', 'index.html', 'vite.config.js', 'package.json', 'src/new/deep/file.js']) {
+  for (const changed of ['src/main.js', 'src/ui/hud.js', 'public/assets/a.glb', 'index.html', 'vite.config.js', 'package.json', 'src/new/deep/file.js',
+    // what goes into the build without being page source: a lockfile-only update, and the scripts that make the assets
+    'package-lock.json', 'tools/build-assets.mjs', 'tools/build-kit.mjs', 'tools/pack-dir.mjs']) {
     await withTree(async ({ root, put }) => {
       await sources(put, T(1))
       await put('dist/index.html', T(5))

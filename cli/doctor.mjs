@@ -14,7 +14,7 @@ import { eventsFile } from '../server/hooks/events.mjs'
 import { LiveStatus } from '../server/hooks/live.mjs'
 import { buildState } from './build.mjs'
 import { insideCmux } from './cmux-env.mjs'
-import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort } from './port.mjs'
+import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort, urlHost } from './port.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -74,11 +74,13 @@ export async function doctor(_argv, io = {}) {
         : 'off (not inside cmux); copy mode still works'
   )
   const base = Number(env.PORT) || DEFAULT_PORT
-  const pick = await pickPort({ base, probe })
+  // Ask where start asks. The address itself is not printed: it comes from the environment.
+  const shownHost = urlHost(env.MOON_BASE_HOST || '127.0.0.1')
+  const pick = await pickPort({ base, probe: (port) => probe(port, { host: shownHost }) })
   row(
     'Port',
     pick.kind === 'reuse'
-      ? `a Moon Base is already running at http://127.0.0.1:${pick.port} (moonbase1 would use it)`
+      ? `a Moon Base is already running on port ${pick.port} (moonbase1 would use it)`
       : pick.kind === 'free'
         ? `${pick.port} is free, so moonbase1 would start there`
         : `no free port from ${base} to ${base + PORT_SPAN}`
