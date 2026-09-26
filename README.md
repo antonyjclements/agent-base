@@ -14,12 +14,22 @@ You need Node 22.13 or newer. macOS is the platform it is built and tested on.
 
 ```bash
 npm install
-npm run dev
+npm link        # once: puts the moonbase1 command on your PATH
+moonbase1
 ```
 
-Then open http://localhost:5274. Do not open `index.html` from disk: the page needs the dev server.
+`moonbase1` builds the page if there is no build or the source has changed, starts on port 5274 (or the next
+free one, or the copy that is already running), and opens the page. Inside a cmux terminal it turns the
+terminal launcher on for you (see "Working from a terminal"). `moonbase1 --no-open` does not open the page,
+`moonbase1 --port <n>` starts the search for a free port at `n`, and `moonbase1 --help` lists the rest.
+`moonbase1 doctor` says what it would decide and whether each live source is reporting; it prints kinds,
+counts and ages, never a message, so its output is safe to paste when asking why a bot is missing.
 
-`npm test` runs the whole test suite, and `npm start` builds the page and serves it.
+If `npm link` is not allowed on your machine, use an alias, `alias moonbase1='node /path/to/moon-base/bin/moon-base.mjs'`,
+or `npm run moon-base --` in place of `moonbase1`.
+
+For working on Moon Base itself, `npm run dev` starts the Vite dev server (open http://localhost:5274; do not
+open `index.html` from disk), `npm test` runs the whole test suite, and `npm start` builds the page and serves it.
 
 Your colony layout (which repo sits on which plot, what you archived) is the only thing written, to
 `data/colony.json` in this folder. Deleting it resets the map and touches none of your sessions.
@@ -53,7 +63,9 @@ links. On a machine without them, open Settings → Sessions → **Open sessions
   the same session would race the one transcript file they both write. Either way, Moon Base also brings the
   cmux app itself to the front, since cmux's own "focus" only selects a workspace inside its window and does
   not raise the app over whatever else is in front.
-  This is off until you start Moon Base with `MOON_BASE_TERMINAL=cmux`, **from a cmux terminal**:
+  With Automatic, the default, this is what you get when Moon Base was started **inside a cmux terminal**:
+  `moonbase1` turns the launcher on there by itself. To do it by hand, start Moon Base from a cmux terminal
+  with `MOON_BASE_TERMINAL=cmux`:
 
   ```bash
   MOON_BASE_TERMINAL=cmux npm run dev
@@ -68,7 +80,25 @@ cmux is the only launcher for now. Any other terminal (Terminal.app, iTerm2, Gho
 copy option. The command is POSIX shell, so this is for macOS and Linux. Resuming in a terminal does not import a
 terminal-only Claude session into the desktop app, so the import warning does not apply.
 
-## Live status (optional)
+## Live status without hooks
+
+If you run Claude Code in cmux, you get live status with nothing installed (and Codex too, wherever cmux reports
+its sessions, which so far is thinly). Moon Base reads two things the tools already write:
+
+- **cmux's own event stream**, `~/.cmuxterm/workstream.jsonl`: a prompt or tool call turns a bot to running, a
+  permission request or a question shows it awaiting you, and a stop shows it finished.
+- **Claude Code's own busy/idle marker**, `~/.claude/sessions/<pid>.json`, which says a session is mid-turn.
+
+The Live chip names cmux while its stream is reporting (● reporting, ○ present but quiet). From cmux's rows
+Moon Base reads only the event kind, the session id, the folder and the time. The rows also hold what you
+typed and what the tools returned, and none of that is kept, logged, shown or sent anywhere. Nothing is
+written to cmux's files or to any tool's config, and the cmux socket is not used, so it works however Moon
+Base was started. To stop reading the stream, start Moon Base with `MOON_BASE_CMUX_STATUS=off`.
+
+If a bot is not live when you expect it to be, `moonbase1 doctor` says which source is reporting and why any
+other is not.
+
+## Live status with hooks (optional)
 
 Out of the box, status is inferred from the tools' session files, which can lag. Hooks make it live, so a
 bot changes state within about three seconds, including "waiting on a permission". They are opt-in and
@@ -103,6 +133,8 @@ npm run moon-base -- uninstall-hooks           # remove exactly what was added
   be a UUID, and every piece must be letters, digits, `.`, `_` or `-`. The folder is quoted for the pasted line
   and passed to cmux as its own argument, and a folder name containing a control character is refused. cmux is
   started without a shell, and its own error text is never sent to the page.
+- Reading cmux's event stream is read-only and metadata-only (see "Live status without hooks"), and can be
+  switched off. Moon Base never writes to it, renames it, or keeps a row's content.
 - Only the hook installer ever writes to a tool's config, and only after you confirm the diff. The server and
   the page cannot.
 - A process running as you could forge hook events. That can only change how a bot that already exists looks;
@@ -116,6 +148,8 @@ npm run moon-base -- uninstall-hooks           # remove exactly what was added
 | `MOON_BASE_HOST` | The address `npm start` binds to (default loopback). Anything else exposes thread titles, paths and the ability to open threads to that network, with no login. |
 | `MOON_BASE_DATA` | Where `colony.json` is kept. |
 | `MOON_BASE_HOME` | Where the hooks and their events live (default `~/.moon-base`). |
+| `MOON_BASE_CMUX_STATUS` | Set to `off` (or `0`, `false`, `no`) to stop Moon Base reading cmux's own event stream for live status. Anything else leaves it on. |
+| `MOON_BASE_CMUX_DIR` | Where cmux keeps its stream, if it is not in `~/.cmuxterm`. |
 | `MOON_BASE_TERMINAL` | Set to `cmux` to let Open and the new-thread buttons open a cmux workspace. Anything else does nothing. Start Moon Base from a cmux terminal (see above). |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME` | Where to find each tool's data, if it is not in its usual place. |
 | `MOON_BASE_CLAUDE_DESKTOP` | Where Claude's desktop app keeps its session records. |

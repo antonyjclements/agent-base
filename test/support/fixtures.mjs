@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -70,4 +71,61 @@ export async function listing(dir) {
     out.push([path.relative(dir, file), st.size, st.mtimeMs])
   }
   return out.sort()
+}
+
+/**
+ * cmux's event stream, faked. The rows have the shape a real `~/.cmuxterm/workstream.jsonl` row has
+ * (`context`, `createdAt`, `cwd`, `id`, `kind`, `payload`, `ppid`, `source`, `status`, `title`,
+ * `updatedAt`, `workstreamId`), with invented content. Every field that can hold message content holds
+ * SENTINEL, so a test can prove none of it travels anywhere. Never copy a real row into this repo.
+ */
+export const SENTINEL = 'SENTINEL-do-not-leak-7f3a91'
+
+/** base64 the way cmux writes it in `workstreamId`; padded or not, the reader has to take both. */
+export const b64 = (s, padded = false) => {
+  const out = Buffer.from(s).toString('base64')
+  return padded ? out : out.replace(/=+$/, '')
+}
+
+export function cmuxRow({ kind = 'toolUse', source = 'claude', sessionId = SESSION_ID, cwd = '/tmp/demo', at = Date.now(), workstreamId, extra = {} } = {}) {
+  const iso = new Date(at).toISOString().replace(/\.\d+Z$/, 'Z')
+  const pending = kind === 'permissionRequest' || kind === 'question'
+  return JSON.stringify({
+    id: randomUUID(),
+    kind,
+    source,
+    cwd,
+    createdAt: iso,
+    updatedAt: iso,
+    // `undefined` means "the right one"; `null`, `''` and the rest are passed through as the bad values they are.
+    workstreamId: workstreamId === undefined ? `cmux-feed-v1:${b64(source)}:${b64(sessionId)}` : workstreamId,
+    ppid: 1234,
+    status: pending ? { pending: {} } : { telemetry: {} },
+    title: `${SENTINEL} title`,
+    context: { note: SENTINEL },
+    payload: { [kind]: { text: SENTINEL, toolName: 'Bash', toolInputJSON: SENTINEL, resultJSON: SENTINEL, questions: [SENTINEL] } },
+    ...extra,
+  })
+}
+
+/** A `~/.cmuxterm` folder (mode 0700) with a `workstream.jsonl` that `append` adds rows to (mode 0644, as cmux's is). */
+export async function fakeCmux() {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'cmux-fixture-'))
+  await fsp.chmod(dir, 0o700)
+  const file = path.join(dir, 'workstream.jsonl')
+  const append = async (...rows) => {
+    await fsp.appendFile(file, rows.join('\n') + '\n')
+    await fsp.chmod(file, 0o644)
+  }
+  return { dir, file, append, rm: () => fsp.rm(dir, { recursive: true, force: true }) }
+}
+
+/** Claude Code's own live-session marker, `<config>/sessions/<pid>.json`, as the CLI writes it. */
+export async function writeMarker(configDir, { pid = process.pid, sessionId = SESSION_ID, status = 'busy', at = Date.now(), extra = {} } = {}) {
+  const dir = path.join(configDir, 'sessions')
+  await fsp.mkdir(dir, { recursive: true })
+  await fsp.writeFile(
+    path.join(dir, `${pid}.json`),
+    JSON.stringify({ pid, sessionId, cwd: '/tmp/demo', kind: 'interactive', status, statusUpdatedAt: at, updatedAt: at, ...extra })
+  )
 }

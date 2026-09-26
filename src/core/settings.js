@@ -186,10 +186,11 @@ const DEFAULTS = {
   ambienceVolume: 0.8,
   effectsVolume: 0.8,
 
-  // Sessions. What Open and Start-session do: `app` hands them to the tool's desktop app, `copy`
-  // puts the terminal command on the clipboard, `terminal` opens it in the terminal the server was
-  // started for. See `src/game/open-mode.js`, which is what reads it.
-  openWith: 'app',
+  // Sessions. What Open and Start-session do: `auto` uses the terminal when the server has a launcher
+  // and the desktop app when it does not, `app` hands them to the tool's desktop app, `copy` puts the
+  // terminal command on the clipboard, `terminal` opens it in the terminal the server was started for.
+  // See `src/game/open-mode.js`, which is what reads it.
+  openWith: 'auto',
 
   // Behaviour
   autoQuality: true, // drop render scale when frames get expensive

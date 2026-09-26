@@ -289,11 +289,27 @@ async function transcriptMeta(entry) {
 }
 
 /**
- * Sessions with a CLI process actually alive right now. The registry keeps files for
- * processes that have exited, so every pid is probed before it counts.
+ * What a live session's own marker says it is doing: `busy` (mid-turn) or `idle`, and when that last
+ * changed. Anything else, or no time, reads as nothing rather than as a guess.
+ */
+function markerOf(record) {
+  const stamp = [record.statusUpdatedAt, record.updatedAt].find((n) => Number.isFinite(n))
+  return { status: record.status === 'busy' || record.status === 'idle' ? record.status : '', at: stamp ?? 0 }
+}
+
+/** The two fields a thread carries from its marker; empty when there is no live process behind it. */
+function markerFields(live, sessionId) {
+  const marker = live.get(sessionId)
+  return { markerStatus: marker?.status || '', markerAt: marker?.at || 0 }
+}
+
+/**
+ * Sessions with a CLI process actually alive right now, each with what its marker says. The registry
+ * keeps files for processes that have exited, so every pid is probed before it counts. (A Map, so
+ * `.has` and `.size` mean what they meant when this was a Set.)
  */
 async function scanLiveSessions() {
-  const live = new Set()
+  const live = new Map()
   for (const file of await listFiles(CLI_LIVE, (n) => n.endsWith('.json'))) {
     let record
     try {
@@ -304,7 +320,11 @@ async function scanLiveSessions() {
     if (!record.sessionId || !record.pid) continue
     try {
       process.kill(record.pid, 0) // signal 0 only tests for existence
-      live.add(record.sessionId)
+      // Two live processes can share a session id (the duplicate resume this is meant to prevent). The newer
+      // marker speaks for it, and busy wins a tie, so the answer does not depend on the order of the files.
+      const marker = markerOf(record)
+      const known = live.get(record.sessionId)
+      if (!known || marker.at > known.at || (marker.at === known.at && marker.status === 'busy')) live.set(record.sessionId, marker)
     } catch {
       /* process is gone */
     }
@@ -529,6 +549,7 @@ async function scanThreads() {
       recordActivityAt: num(s.lastActivityAt) || num(s.lastFocusedAt) || num(s.createdAt) || 0,
       lastFocusedAt: num(s.lastFocusedAt),
       hasLiveProcess: live.has(cliSessionId),
+      ...markerFields(live, cliSessionId),
       hasError: Boolean(s.error),
       starred: s.isStarred === true,
       routine: s.scheduledTaskId || '',
@@ -568,6 +589,7 @@ async function scanThreads() {
       lastActivityAt: entry.mtime,
       lastFocusedAt: 0,
       hasLiveProcess: live.has(id),
+      ...markerFields(live, id),
       hasError: false,
       starred: false,
       routine: '',
@@ -672,6 +694,9 @@ async function terminalOpen(ref) {
 async function terminalNew(dir) {
   return { ok: true, argv: ['claude'], cwd: dir }
 }
+
+/** For the doctor: the live sessions and what each one's marker says (`{ status, at }` by session id). */
+export const liveSessionMarkers = scanLiveSessions
 
 export default {
   id: 'claude-code',

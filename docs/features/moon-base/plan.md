@@ -11,7 +11,7 @@ depth: deep
 
 Deliver the Moon Base living spec ([spec](spec.md)): a local colony view of Claude Code and Codex sessions, forked from Bot Crossing (MIT, upstream commit `d05ac2ffad9fce3d68e29ab446fce99b7123847b`, 2026-09-18), with its own theme and original bot, opt-in live status hooks, and URL-scheme controls by default, with an opt-in terminal hand-off (Unit 10).
 
-In scope: everything in the spec's Acceptance Criteria AC1 to AC13.
+In scope: everything in the spec's Acceptance Criteria AC1 to AC15. AC14 (live status without hooks) and AC15 (easy start, the `moonbase1` command) are the v2 slice added on 2026-09-26 from `docs/brainstorms/2026-09-26-001-v2-roadmap-idea.md`; Units 11 to 15 build them. The rest of v2 (needs-you view, insight, polish) is not planned here.
 Out of scope: the spec's Boundaries and Non-Goals, plus the Deferred Work below.
 
 Assumptions:
@@ -20,7 +20,7 @@ Assumptions:
 - Upstream's session-store layouts and URL paths were observed to work on this machine (see the spec's spike findings). The items still unverified are listed in the spec's Still open section.
 - No git repo or remote exists yet, so PR and CI steps in the workflow cannot run until one is created.
 
-Dependencies: Claude.app (`claude://`), ChatGPT.app (`codex://`), Claude Code 2.1.x, Codex CLI 0.157.x, three CC0 asset sources (fetched at execution), and upstream's MIT code.
+Dependencies: Claude.app (`claude://`), ChatGPT.app (`codex://`), Claude Code 2.1.x, Codex CLI 0.157.x, three CC0 asset sources (fetched at execution), and upstream's MIT code. For AC14 and AC15: cmux's event stream (`~/.cmuxterm/workstream.jsonl`, an undocumented format), Claude Code's own live-session marker (`~/.claude/sessions/<pid>.json`), and Vite for the production build.
 
 ## Requirements Traceability
 
@@ -31,14 +31,16 @@ Dependencies: Claude.app (`claude://`), ChatGPT.app (`codex://`), Claude Code 2.
 | AC3 read-only toward session data | 3, 4, 5 | `test/readonly-guard.test.mjs` |
 | AC4 local-only | 3, 4 | `test/open-security.test.mjs`, manual check M4 |
 | AC5 hooks opt-in and reversible | 6 | `test/hooks-install.test.mjs` |
-| AC6 live status per tool | 1, 5 | `test/hook-script.test.mjs`, `test/hook-events.test.mjs`, `test/live-api.test.mjs`, manual check M2 |
-| AC7 graceful fallback | 5 | `test/hook-events.test.mjs`, `test/live-api.test.mjs` |
+| AC6 live status per tool | 1, 5, 11 | `test/hook-script.test.mjs`, `test/hook-events.test.mjs`, `test/live-api.test.mjs`, `test/live-layers.test.mjs`, manual check M2 |
+| AC7 graceful fallback | 5, 11 | `test/hook-events.test.mjs`, `test/live-api.test.mjs`, `test/live-layers.test.mjs` |
 | AC8 URL schemes by default | 1, 4, 10 | `test/open.test.mjs`, `test/open-security.test.mjs`, manual check M3 |
 | AC9 own identity | 2, 7 | `test/identity.test.mjs`, manual check M5 |
 | AC10 art licensing | 7 | `test/identity.test.mjs` |
 | AC11 attribution and license | 2 | `test/identity.test.mjs` |
 | AC12 only two adapters | 2, 3 | `test/identity.test.mjs` |
 | AC13 terminal hand-off, opt-in | 10 | `test/terminal-handoff.test.mjs`, `test/terminal-lib.test.mjs`, `test/open-mode.test.mjs`, `test/open-security.test.mjs`, manual check M6 |
+| AC14 live status without hooks | 11, 12, 15 | `test/cmux-stream.test.mjs`, `test/live-layers.test.mjs`, `test/live-api.test.mjs`, `test/harness.test.mjs`, `test/live-chip.test.mjs`, manual check M7 |
+| AC15 easy start | 12, 13, 14, 15 | `test/cli-dispatch.test.mjs`, `test/cli-start.test.mjs`, `test/cli-doctor.test.mjs`, `test/serve.test.mjs`, `test/identity-route.test.mjs`, `test/open-mode.test.mjs`, manual checks M8 and M9 |
 
 Test policy is `acceptance-first` (`docs/workflow/config.yml`): in every unit, write the acceptance tests from the table above first, watch them fail, then implement.
 
@@ -50,6 +52,10 @@ No local code yet, and `docs/standards/index.yml`, `docs/decisions/index.yml` an
 - `server/scan.mjs` merges adapter output into one thread list. `server/api.mjs` serves it with loopback binding and Host/Origin checks.
 - Tests use `node --test` with `test/support/with-server.mjs` and `test/support/env.mjs` for a fake HOME.
 - Thread IDs are prefixed `claude-code:<uuid>` and `codex:<uuid>`.
+- For AC14: `server/hooks/events.mjs` (`EventTail`, `parseEvent`) and `server/hooks/live.mjs` (`LiveStatus`, `stateFor`, TTLs) already implement "a tailed file becomes per-session state laid over the scan, never creating a bot". A second source should reuse them, not copy them. `test/hook-events.test.mjs` and `test/live-api.test.mjs` show how to test it (a temp events dir, an injected clock, `withServer`).
+- Test seams: `setOpener`, `setTerminalRunner`, `setSessionProbe` and `setForegrounder` in `server/api.mjs`, wired to recorders in `test/support/with-server.mjs`, so no test starts a real process. New process-touching code in `cli/` follows the same pattern with injected dependencies.
+- `hooks/` and `bin/` are kept out of reach of `server/` (D5), with a source scan in `test/hooks-install.test.mjs`. The new `cli/` directory follows the same rule.
+- `docs/learnings/2026-09-26-mutation-check-regression-tests.md`: a test guards a rule only once it fails with the rule removed. Each unit below lists the mutations to run.
 
 ## Decisions
 
@@ -66,6 +72,17 @@ No local code yet, and `docs/standards/index.yml`, `docs/decisions/index.yml` an
 - **D11. Terminal hand-off is data from the adapters, validated and run in one file.** Adapters gain `terminalOpen(ref)` and `terminalNew(dir)`, returning `{ ok, argv, cwd }` and never running anything. `server/lib/terminal.mjs` alone checks every argv token against `[A-Za-z0-9._-]`, quotes the folder for the pasted line, and (only with `MOON_BASE_TERMINAL=cmux` in the server's environment) runs `cmux new-workspace --cwd <folder> --command <line> --focus true` with `execFile` and no shell. Two fixed routes, `POST /api/terminal-command` and `POST /api/terminal-launch`, plus `GET /api/terminal-launcher` for the page to learn whether the launcher is on. The page's `Open sessions with` setting picks app, copy or terminal, and a stored `terminal` choice falls back to copy when the launcher is off. Rationale and alternatives: `docs/decisions/2026-09-26-terminal-handoff-copy-command-and-opt-in-launcher.md`.
 - **D12 (added 2026-09-26, from M6).** Before the cmux launcher opens a thread, it asks cmux's own `sessions --agent <agent> --session <id> --json` (no socket needed) whether that session is already open, and skips the launch if so. Adapters now name the exact id being resumed (`resumeId`, alongside `argv`/`cwd`) so the server can ask without parsing a command line apart. Rationale: found live during M6 — clicking Resume on an already-open thread started a second `claude --resume` on the same session, racing the one transcript file both processes write. The probe never blocks an ordinary launch on its own failure (any error, missing `cmux`, or a shape it does not recognise reads as "not open"), and it never runs for a new session (which has no id to ask about) or for copy mode (which starts nothing to duplicate).
 - **D13 (added 2026-09-26, from the same M6 report).** After a cmux launch succeeds, or is skipped as already open, the server also runs `open -a cmux` (macOS only), best-effort, result never read. Rationale: also found live during M6 — cmux never came to the foreground on either a fresh launch or a skip, because `new-workspace --focus true` only selects the workspace *inside* cmux's own window and nothing in cmux's CLI raises the *application* itself. `open -a cmux` is the same OS primitive the existing desktop-app opener already uses for `claude://`/`codex://` links, applied to a fixed, hardcoded app name that a request can never change — `test/open-security.test.mjs` asserts `open` is named exactly once in `terminal.mjs`, and only as `['open', '-a', 'cmux']`.
+- **D14. cmux rows reuse the hook pipeline (AC14; resolves Q1).** `EventTail` gets optional `parse`, `maxLine`, `seedBytes` and `seedMs` (defaults unchanged, so hooks behave exactly as now). A new `server/hooks/cmux.mjs` turns one `workstream.jsonl` row into the same normalised event and maps kinds onto the hook vocabulary, so `stateFor` is untouched: `userPrompt` to `UserPromptSubmit`; `toolUse` and `toolResult` to `PostToolUse`; `permissionRequest` and `question` to `PermissionRequest`; `stop` to `Stop`; `sessionEnd` to `SessionEnd`; `sessionStart` ignored. The session id comes from `workstreamId` (`cmux-feed-v1:<base64 source>:<base64 id>`) and is accepted only when there are exactly three parts, the first is `cmux-feed-v1`, the decoded source equals the row's `source` (`claude` or `codex`), and the id passes the existing id pattern. Only `kind`, `source`, `cwd`, `createdAt` and that id are read from a row, and the parsed object is dropped as soon as they are picked: `payload`, `title` and `context` are never retained. Rationale: one state machine and one TTL table for every source (AC6, AC7), and the privacy rule lives in one function that a sentinel test can pin. Q1 is settled by the data: a `question` row's payload is a pending request like `permissionRequest` (`requestId` plus the questions), and cmux marks exactly those three observed rows `status: pending`, so both mean awaiting input. Codex rows beyond `sessionStart` were not observed, so Codex works through the same mapping by kind and anything unknown is ignored.
+- **D15. Newest wins across sources.** `LiveStatus` replaces a session's entry only with one at least as new. Rationale: two tails now feed one map, and an older cmux row read after a newer hook event would otherwise put a bot back in a state it had left. It applies to hooks alone too.
+- **D16. Claude's marker is read in the adapter.** `livePending` in `server/harnesses/claude-code.mjs` already reads `~/.claude/sessions/*.json` to know which processes are alive. It also keeps `status` and `statusUpdatedAt` for those, and the thread gets `markerStatus` and `markerAt`. The overlay treats `busy` as a running candidate dated `markerAt`, competing under D15, and `idle` as nothing (AC14). `liveSource` is `claude` when it wins. If two live processes share a session id (the duplicate resume the launcher guard exists to prevent), the newer marker speaks for it and busy wins a tie, so the answer never depends on the order of the files (added after review). No off switch: it is Claude's own file and is already read.
+- **D17. Sources reach the page as a list.** `summary()` gains `sources: [{ id, present, lastAt }]` for `hooks` and `cmux`, and `active` counts cmux. The chip names cmux only while its stream exists and the switch is not off (`Live · Claude Code ● Codex ○ · cmux ●`). The Claude marker is not a chip source: it is a snapshot, not something that reports.
+- **D18. Off switch and location (resolves Q3).** `MOON_BASE_CMUX_STATUS=off` (also `0`, `false`, `no`, any case) switches the cmux source off, and then its files are never opened. Any other value, or none, leaves it on. `MOON_BASE_CMUX_DIR` overrides `~/.cmuxterm`, for tests and unusual installs, like `CODEX_HOME`. Rejected: a general `MOON_BASE_LIVE_SOURCES` list, since one source is switchable today.
+- **D19. What the cmux tail reads (resolves Q2 as far as it can be settled here).** On start it replays the last 6 hours or 1 MiB, whichever is smaller. The longest state lifetime is 6 hours (a permission prompt left waiting), and the hook defaults of 10 minutes and 256 KiB would forget it. It accepts lines up to 512 KiB, because rows carry tool inputs (hook lines are capped at 4 KiB), and a longer line is skipped without stalling the tail. It inherits the tail's handling of truncation, replacement and a half-written last line. `cmux feed clear` shows the history is user-clearable, so a shrinking file is normal. cmux's own rotation policy could not be determined here and is observed at work (M7).
+- **D20. `moonbase1` is one entry with subcommands, outside `server/` (AC15).** A new `cli/` directory holds start, doctor, the build check, the port probe, cmux detection and the page opener. `bin/moon-base.mjs` dispatches: no arguments or `start` starts Moon Base, `doctor` runs the doctor, and `install-hooks`, `uninstall-hooks` and `hooks-status` go to `hooks/cli.mjs` as now. `package.json` gains `bin: { moonbase1: bin/moon-base.mjs }`, and `npm run moon-base -- <command>` keeps working. Nothing under `server/` imports `cli/`, and a test scans for it. cmux is recognised when `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` are both set (both observed in a process cmux started).
+- **D21. Start runs the production build in-process.** It sets `PORT` and, when inside cmux and `MOON_BASE_TERMINAL` is unset, `MOON_BASE_TERMINAL=cmux`, then starts the server. An explicit value always wins, including one that disables the launcher. `server/serve.mjs` is refactored to export `serve({ port, host, dist })` and still starts itself when run directly, so an in-use port becomes a message rather than a crash. In-process keeps the server a descendant of the cmux terminal, which is what cmux's socket rule needs, and keeps Ctrl-C simple. The build runs `tools/build-assets.mjs` and then Vite's build with `process.execPath`, so it depends on neither `npm` nor the PATH. A build is stale when the newest modification time under `src/`, `public/`, `index.html`, `vite.config.js` or `package.json` is newer than `dist/index.html`, or there is no `dist`. A failed build stops with the build's own output rather than serving something stale. This settles the stale-build part of Q4.
+- **D22. Already-running is found by asking, not by a lock file (settles the rest of Q4 apart from PATH).** A new read-only `GET /api/identity` answers `{ app: 'moon-base', version, pid, launcher }`, behind the existing Host and Origin checks. Start probes the default port and the next 20 (from `PORT` when set). A Moon Base answer means reuse: say so, note it if that copy has the launcher off while this terminal is inside cmux, and open the page. Anything else, or a refusal, means try the next port, and the first free one is used. Rationale: it also finds copies started with `npm run dev`, and leaves no file to go stale.
+- **D23. `openWith` defaults to `auto`.** `resolveOpenMode('auto', launcher)` is Terminal when the server has a launcher on and Desktop app otherwise, and the select gains an Automatic entry. Browser storage is per origin (the port is part of it) and every settings write persists the whole object, so "not yet chosen" cannot be read back from storage, but a value that means it can. Installs that already stored `app` or `terminal` keep it.
+- **D24. Doctor is read-only and content-free.** `moonbase1 doctor` reports the environment (inside cmux or not, whether the launcher would be on), running copies, whether the build is fresh, and for each source (hooks events file, cmux stream, Claude markers) whether it is present, reporting, and the age of the last event, with a reason when it is not: missing, unreadable, refused because of its permissions, switched off, or no events in the last 10 minutes. It prints kinds, counts and ages and never a row's content, and it exits 0. `EventTail` records why it returned nothing so the doctor and the tests can say so.
 
 Alternatives considered:
 - A clean-room rebuild was rejected by you earlier.
@@ -185,12 +202,102 @@ Goal: AC13, so Moon Base is usable where the desktop apps are not installed (cmu
 - Edge cases: a CLI-only Claude thread (no desktop record) resumes fine; a thread whose folder was deleted is refused with a message; a thread with no folder on record is refused; a Claude desktop record with no CLI id has nothing to resume.
 - Not done here: running against a live cmux (manual check M6).
 
+### Unit 11. cmux stream and Claude's marker as live sources (AC14, server; added 2026-09-26)
+
+Goal: status is live at work with nothing installed. cmux's event stream and Claude's own busy/idle marker become live signals laid over the scan, metadata only, tolerant of any file trouble, and switchable. Decisions D14 to D19 and `docs/decisions/2026-09-26-live-status-from-cmux-event-stream-metadata-only.md`. High-Risk under `AGENTS.md`: it reads another app's private files that hold message content, so review evidence or explicit acceptance is needed before any PR.
+
+- Files: `server/hooks/events.mjs` (`EventTail` options, and a recorded reason when it returns nothing), `server/hooks/cmux.mjs` (new), `server/hooks/live.mjs` (second tail, newest-wins, marker candidates, `summary().sources`), `server/harnesses/claude-code.mjs` (marker fields on threads), `test/support/fixtures.mjs` (`fakeCmux`, `fakeMarker`).
+- Checkpoint before any code: build fixtures with the real row shape (keys `context`, `createdAt`, `cwd`, `id`, `kind`, `payload`, `ppid`, `source`, `status`, `title`, `updatedAt`, `workstreamId`) and invented content, with a sentinel string in every content-bearing field. Never copy a real row into the repo.
+- Tests first (acceptance-first), each mapped to an AC14 example:
+  - `test/cmux-stream.test.mjs`:
+    - the mapping table for every kind and both tools, and `sessionStart` ignored;
+    - `workstreamId` decoding: valid; wrong prefix; two or four parts; bad base64; decoded source not equal to `source`; id failing the pattern;
+    - unknown kind ignored; missing or invalid `createdAt` becomes arrival time; a future one is clamped;
+    - a line over 512 KiB is skipped without stalling the tail;
+    - truncation, replacement, a half-written last line, and no trailing newline;
+    - the cold-start window: an awaiting row 5 hours old still counts, one 7 hours old does not;
+    - the permission rule: a group- or world-writable file is refused, mode 0644 is accepted;
+    - the sentinel test: no event field contains the sentinel, and an event has only the allowed keys;
+    - `cmuxStatusEnabled` for `MOON_BASE_CMUX_STATUS` values, and `cmuxFile` honouring `MOON_BASE_CMUX_DIR`.
+  - `test/live-layers.test.mjs`:
+    - hooks and cmux both feeding one map, with newest winning in both arrival orders;
+    - `question` gives awaiting, then `toolResult` gives running, `stop` gives finished, `sessionEnd` forgets;
+    - every state expires back to the files;
+    - an event for an unscanned session is held for a minute, then dropped, and creates no bot;
+    - marker `busy` is a running candidate, `idle` adds nothing, and the marker competes with events by time;
+    - the off switch: the cmux file is never opened and the summary omits cmux;
+    - `summary().sources` shapes, and `active` true when only cmux reports;
+    - with cmux absent, behaviour is exactly what it was.
+  - `test/live-api.test.mjs` (extend): through `withServer` with a `MOON_BASE_CMUX_DIR` fixture, a cmux row shows on the next `/api/threads` with `liveSource: 'cmux'`, `live.sources` names cmux, the off switch works, and the fixture's sentinel appears in no response body from `/api/threads`, `/api/harnesses`, `/api/state`, `/api/terminal-launcher`.
+  - `test/harness.test.mjs` (extend): a Claude thread carries `markerStatus` and `markerAt` from a fake `sessions/<pid>.json` (busy, idle, no status field, dead pid, unparseable file).
+- Edge cases: a session id valid but not scanned; duplicate rows; two scans at once (the tail already queues); `~/.cmuxterm` present but `workstream.jsonl` missing; a busy marker whose pid is gone or reused (the existing liveness check applies).
+- Mutation checks (see the learning): keep `payload` on the event, drop the newest-wins guard, loosen the `workstreamId` checks (each one), remove the off switch, drop the permission rule, map `sessionStart` to running, skip the pid check on the marker, and shrink the cold-start window. Each must fail a named test.
+- Verification: `npm test`. The existing hook tests must pass unchanged, which shows the hook path did not move.
+- Ticket hint: "Live status from cmux's event stream and Claude's marker". Depends on nothing. Labels: server, privacy.
+
+### Unit 12. The page: chip and Automatic open mode (AC14 chip, AC15 first-run default)
+
+Goal: the Live chip names cmux while it reports and shows it as not reporting when it is present but quiet, and a fresh install inside cmux starts on Terminal. D17 and D23.
+
+- Files: `src/game/live-chip.js` (new, pure, so it can be tested without the DOM), `src/ui/hud.js`, `src/game/open-mode.js`, `src/core/settings.js`.
+- Tests first: `test/live-chip.test.mjs` (hooks only; cmux reporting; cmux present and quiet; cmux switched off or absent, which is never named; nothing reporting, which hides the chip) and `test/open-mode.test.mjs` (`auto` gives terminal with a launcher and app without, unknown values still give app, `new Settings().get('openWith')` is `auto`, and a stored `app` or `terminal` survives a load through a stubbed `localStorage`).
+- Edge cases: an install that already stored `app` keeps it; the select shows Automatic and its hint says what it resolves to; `_paintOpenHints` treats `auto` as the mode it resolves to.
+- Depends on Unit 11's `summary()` shape. Manual check M9 for how the chip reads.
+- Ticket hint: "Live chip names cmux; Automatic open mode". Labels: ui.
+
+### Unit 13. `moonbase1` start (AC15)
+
+Goal: one command starts Moon Base: fast, cmux-aware, on a free port or an existing copy, opening the page. D20 to D22.
+
+- Files: `bin/moon-base.mjs`, `cli/dispatch.mjs`, `cli/start.mjs`, `cli/cmux-env.mjs`, `cli/port.mjs`, `cli/build.mjs`, `cli/open-page.mjs` (all new), `server/serve.mjs` (export `serve`), `server/api.mjs` (`GET /api/identity`), `package.json` (`bin`).
+- Tests first:
+  - `test/cli-dispatch.test.mjs`: no arguments and `start` start; `doctor` runs the doctor; the three hook commands reach `hooks/cli.mjs` unchanged; an unknown command prints usage and exits 2; `--help`.
+  - `test/cli-start.test.mjs`, with every dependency injected (server start, port prober, build runner, page opener, env, file times):
+    - inside cmux (both variables set, and each alone is not enough) sets `MOON_BASE_TERMINAL=cmux`; outside says the launcher is off;
+    - an explicit `MOON_BASE_TERMINAL`, including one that disables it, is never overridden;
+    - port choice: default free; taken by another program; taken by a Moon Base (reuse, with the launcher note); all 21 taken (a clear error);
+    - the stale-build decision from temp trees (missing dist, newer source, equal, older), a failed build stopping with its own output, and a fresh build not being rebuilt;
+    - `--no-open`; messages are plain lines and never print an env value.
+  - `test/serve.test.mjs`: `serve` returns a handle and closes; an in-use port rejects with a code the start turns into a message; the static behaviour is unchanged, including `403` on path traversal and the SPA fallback.
+  - `test/identity-route.test.mjs`: the shape, GET only, refused for a foreign Host, no paths or environment in the body.
+  - Extend the source scan in `test/hooks-install.test.mjs`: nothing under `server/` or `src/` imports `cli/`.
+- Edge cases: the port free at probe time but taken by listen time (the in-use rejection above); `MOON_BASE_HOST` set to a non-loopback address (print the README's warning); Ctrl-C shuts down cleanly; Windows is not a claimed platform (say so rather than fail oddly); a `dist` written by an older version.
+- Mutation checks: drop the both-variables rule, let a request-shaped value set the launcher, override an explicit `MOON_BASE_TERMINAL`, treat a non-Moon-Base answer as "already running", skip the stale check, serve after a failed build, and let `server/` import `cli/`.
+- Checkpoint M8, on the work machine: whether `npm link` is allowed there (Q4). The fallback is a shell alias, documented in Unit 14.
+- Ticket hint: "moonbase1: one-command start". Depends on nothing in Units 11 and 12, so it can run in parallel with them. Labels: cli.
+
+### Unit 14. Minimal doctor, docs and decision records (AC15)
+
+Goal: `moonbase1 doctor` says what start decided and why a source is or is not reporting. D24. Then the documents catch up.
+
+- Files: `cli/doctor.mjs` (new), `server/hooks/events.mjs` and `server/hooks/live.mjs` (`diagnose()`), `README.md`, `docs/features/moon-base/spec.md`.
+- Tests first: `test/cli-doctor.test.mjs`, against temp dirs and an injected clock:
+  - every reason string is produced by a fixture (missing, unreadable, refused for permissions, switched off, quiet for over 10 minutes, reporting);
+  - the environment lines for inside and outside cmux;
+  - a running copy found through `/api/identity`;
+  - build fresh, stale and missing;
+  - the output never contains the fixture's sentinel content and never an env value, and the exit code is 0.
+- README: a Start section (`npm link` once, then `moonbase1`; the alias fallback; `npm run moon-base -- <command>` still works), the two new env vars in the settings table, and "Working from a terminal" simplified to start with `moonbase1`.
+- Spec: mark Q1 to Q3 resolved with the decisions above, keep the PATH part of Q4 open until M8, and update Current Behavior once the units are built.
+- Decision records to capture with `aw-capture` (immutable): D20 and D21 with D22 (how `moonbase1` starts), D23 (the `auto` default), and D18 with D19 if the off switch or the read window is questioned later. The privacy and layering decision for the cmux source already exists.
+- Ticket hint: "moonbase1 doctor and docs". Depends on Units 11 and 13.
+
+### Unit 15. Acceptance run at work (needs the user, on the work machine)
+
+Manual checks, each with recorded evidence; nothing here can be run from the personal machine.
+
+- **M7 (AC14).** In a cmux terminal, run `moonbase1`, then a Claude session. Check that `~/.cmuxterm/workstream.jsonl` fills, that `moonbase1 doctor` says cmux is reporting, that a prompt turns the bot to running within about three seconds, that a permission request or a question shows awaiting input and clears after the answer, and that stop shows finished. Set `MOON_BASE_CMUX_STATUS=off` and check the chip drops cmux. Record whether the file is rotated or cleared over a day (Q2), and any Codex rows if Codex is used there. This also settles whether cmux's hooks fire under the work machine's managed settings, which is the assumption AC14 rests on.
+- **M8 (AC15).** Check whether `npm link` works at work, or use the alias. Run `moonbase1` from a cmux tab (launcher on, no env var, first load on Terminal), from a normal terminal (launcher off, copy works), and with a copy already running from `npm run dev` (reused, not duplicated).
+- **M9 (AC14, AC15).** Look at the chip in each state and at the Automatic option in Settings.
+
 ## Test Plan
 
 - Unit tests and fixtures are in the paths above and run with `npm test` (`node --test "test/**/*.test.mjs"`).
 - Acceptance-first: each unit's tests are written from its AC rows before implementation.
 - Manual checks M1 to M5 (Unit 8) cover what needs real apps: live hook timing, real URL schemes, real network behavior, and visual identity.
-- No test reads real `~/.claude`, `~/.codex` or `~/.moon-base`. All use a temp HOME.
+- No test reads real `~/.claude`, `~/.codex`, `~/.moon-base` or `~/.cmuxterm`. All use a temp HOME, and cmux fixtures are written with `MOON_BASE_CMUX_DIR`.
+- Units 11 to 15 (AC14, AC15) follow the same policy: tests from the AC examples first, watched failing, then the code. Every rule listed under a unit's mutation checks is removed once and the named test must fail; any test that still passes means the test is wrong, not the rule.
+- Manual checks for the v2 slice are M7 to M9 (Unit 15), on the work machine, because they need cmux's hooks, `npm link` permissions and the real stream there.
 
 ## Risks and Open Questions
 
@@ -201,8 +308,16 @@ Goal: AC13, so Moon Base is usable where the desktop apps are not installed (cmu
 - **Absolute Node path in hooks.** An nvm path breaks when the Node version changes. Unit 1 check 3 decides between an absolute path and PATH lookup.
 - **Undocumented URL paths and session stores can change with app updates.** URL building and store parsing stay isolated in the adapters, with `diagnostic()` output and fixture tests, so drift shows as a clear message.
 - **Spoofed events.** Same-user processes can forge display state (D3, D4). Documented, not defended.
-- **High-Risk workflow gates.** Per `AGENTS.md`, this needs review evidence, and `human_review.spec.reviewers` and `human_review.plan.reviewers` are empty. There is also no git remote for a review PR. Before any PR you must either configure reviewers, or accept the risk explicitly.
+- **High-Risk workflow gates.** Per `AGENTS.md`, this needs review evidence, and `human_review.spec.reviewers` and `human_review.plan.reviewers` are empty. A remote (`origin`) exists now, but nothing is configured to review a PR. Before any PR you must either configure reviewers, or accept the risk explicitly. Unit 11 (reading another app's private files that hold message content) is the part that most needs it.
 - **Unverified assumption:** docs-derived hook event lists and upstream URL strings are not yet observed live (Unit 1).
+- **cmux's format can change (AC14).** `cmux-feed-v1` is undocumented and version-dependent. It gets one parser, fixtures with the real shape, and a doctor reason, so a change reads as "cmux not reporting" and never as an error, and the files still decide.
+- **Whether cmux's hooks fire at work is the assumption AC14 rests on.** The person confirmed cmux shows agent status there, but the stream file has only been seen on the personal machine. If it is empty at work (M7), AC14 shrinks to Claude's busy/idle marker, and the fallback is to read cmux's events over its socket instead, which ties live status to being started inside cmux. That would be a new decision, not a quiet change.
+- **Message content is in the rows.** Rows carry prompts, tool inputs and results. The parser drops everything but five fields as soon as the row is parsed; the parsed object is transient in memory only. Nothing logs a row, the doctor prints kinds, counts and ages, and a sentinel test runs through the parser, the API responses and the doctor output.
+- **Oversized rows.** A row over 512 KiB is skipped, so an event can be lost. The next event corrects the state, and every state expires to the files anyway.
+- **A stale `busy` marker.** A crashed process leaves a marker behind, and a pid can be reused. The existing liveness check (`kill -0`) applies before a marker counts, and a reused pid could still read as busy until it exits. Accepted; noted for the doctor.
+- **cmux timestamps are whole seconds.** A row is up to a second older than what it describes. Within one file that is harmless, but when hooks and cmux both report a session, two events less than a second apart can be ranked either way by newest-wins (D15), leaving a state briefly wrong until the next event. Accepted, and noted in `server/hooks/cmux.mjs`; there is no millisecond time to use.
+- **In-process start (D21).** `serve()` runs inside the `moonbase1` process, so a crash there ends the command. That is what a foreground server does anyway, and it is what keeps the server inside the cmux terminal's process tree. Review found that one malformed request line could crash it (an unhandled rejection from `new URL`); the handler and the API middleware now answer 400 instead, with tests that send such lines.
+- **Open, carried to a checkpoint:** whether `npm link` is allowed on the work machine (Q4, M8), and how cmux rotates or clears `workstream.jsonl` (Q2, M7).
 
 ## Deferred Work
 
@@ -211,8 +326,10 @@ Goal: AC13, so Moon Base is usable where the desktop apps are not installed (cmu
 - Steering or sending input to a running session.
 - Sound design, planet variety beyond the lunar default, and mascot variants.
 - A cadence and tooling for pulling upstream changes.
-- Packaging as a menu-bar app or login item.
+- Always-on start (a menu-bar app or login item). Dropped on 2026-09-26 and now a spec non-goal. The cmux launcher only works when Moon Base is started inside cmux (its socket accepts only its own child processes), so an always-on server would be viewer plus copy-command only. A lead if it comes back: cmux's socket password auth.
+- The rest of v2, in `docs/brainstorms/2026-09-26-001-v2-roadmap-idea.md`: the cross-repo needs-you view, insight on the card (what the agent last said or asked, a "today" timeline, a PR link read from Claude transcripts), a fuller doctor, and sound, mascot and planet polish. The village or farm theme is parked there too.
+- Focusing an already-open session's own cmux workspace (no cmux command for it was found).
 
 ## Handoff
 
-Start with Unit 1 once you give the go-ahead. Recommended next step: `aw-work docs/features/moon-base/plan.md`, beginning at Unit 1. Alternatively run `aw-create-tickets docs/features/moon-base/plan.md`; the units are independently reviewable and sequenced (1, 2, 3, then 4, 5 and 7 in any order, 6 after 5, then 8 and 9).
+Units 11 to 15 are the v2 additions for AC14 and AC15. Recommended next step: `aw-work docs/features/moon-base/plan.md`, beginning at Unit 11 (the data foundation). Alternatively run `aw-create-tickets docs/features/moon-base/plan.md`; the units are independently reviewable and sequenced: 11 first; 12 after 11 (it needs the `summary()` shape); 13 is independent of 11 and 12 and can run in parallel; 14 after 11 and 13; 15 last, on the work machine. Units 1 to 10 are the earlier plan and are unchanged.

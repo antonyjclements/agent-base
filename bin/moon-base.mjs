@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { run } from '../hooks/cli.mjs'
+import { dispatch } from '../cli/dispatch.mjs'
 
-process.exitCode = await run(process.argv.slice(2))
+process.exitCode = await dispatch(process.argv.slice(2))

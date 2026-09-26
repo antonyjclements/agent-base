@@ -255,7 +255,7 @@ test('with no events file at all, nothing changes and nothing throws', async () 
   await withLive(async ({ live }) => {
     await live.refresh()
     assert.deepEqual(live.overlay([claudeThread]), [claudeThread])
-    assert.deepEqual(live.summary(), { active: false, tools: { 'claude-code': 0, codex: 0 } })
+    assert.deepEqual(live.summary(), { active: false, tools: { 'claude-code': 0, codex: 0 }, sources: [{ id: 'hooks', present: false, lastAt: 0 }] })
   })
 })
 
@@ -263,7 +263,7 @@ test('the summary says which tools have reported lately', async () => {
   await withLive(async ({ live, emit, clock }) => {
     await emit({ tool: 'codex', event: 'Stop' })
     await live.refresh()
-    assert.deepEqual(live.summary(), { active: true, tools: { 'claude-code': 0, codex: NOW } })
+    assert.deepEqual(live.summary(), { active: true, tools: { 'claude-code': 0, codex: NOW }, sources: [{ id: 'hooks', present: true, lastAt: NOW }] })
     clock.now += 11 * 60 * 1000
     assert.equal(live.summary().active, false)
   })

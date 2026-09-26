@@ -18,7 +18,7 @@ export const EVENTS = {
 export const MAX_LINE = 4096
 const MAX_READ = 1024 * 1024
 const SEED_BYTES = 256 * 1024
-const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/
+export const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/
 const clip = (v, n) => (typeof v === 'string' && v ? v.slice(0, n) : undefined)
 
 export function eventsFile(env = process.env, home = os.homedir()) {
@@ -60,23 +60,53 @@ const private_ = (st) => typeof process.getuid !== 'function' || (st.uid === pro
  * Follows the events file from where it last stopped. Tolerates everything a log can do: not
  * existing yet, a half-written last line, being truncated or replaced, and growing without limit
  * (past `maxBytes` it is renamed aside once fully read, and the hook script simply starts a new one).
+ *
+ * The defaults are the hook script's: its own line format, 4 KiB lines, a ten-minute replay of the
+ * last 256 KiB, and a file that is Moon Base's to rename. Another source that is *not* Moon Base's
+ * (cmux's stream) brings its own `parse` and limits and sets `rotate: false`, because a tail must
+ * never rename, move or write a file it did not create.
+ *
+ * `problem` says why the last read returned nothing, for the page and for the doctor: `unread` (not
+ * read yet), `missing`, `not-private` (someone else could write to it, so it is not trusted),
+ * `not-a-file`, `unreadable`, or null when it was read.
  */
 export class EventTail {
   #file
   #now
   #maxBytes
   #seedMs
+  #seedBytes
+  #maxLine
+  #parse
+  #rotate
+  #problem = 'unread'
   #identity = ''
   #offset = 0
   #partial = Buffer.alloc(0)
   #seeded = false
   more = false
 
-  constructor(file, { now = Date.now, maxBytes = 5 * 1024 * 1024, seedMs = 10 * 60 * 1000 } = {}) {
+  constructor(
+    file,
+    { now = Date.now, maxBytes = 5 * 1024 * 1024, seedMs = 10 * 60 * 1000, seedBytes = SEED_BYTES, maxLine = MAX_LINE, parse = parseEvent, rotate = true } = {}
+  ) {
     this.#file = file
     this.#now = now
     this.#maxBytes = maxBytes
     this.#seedMs = seedMs
+    this.#seedBytes = seedBytes
+    this.#maxLine = maxLine
+    this.#parse = parse
+    this.#rotate = rotate
+  }
+
+  get problem() {
+    return this.#problem
+  }
+
+  /** The file exists (whether or not it may be read). False before the first read and when it is missing. */
+  get present() {
+    return this.#problem !== 'unread' && this.#problem !== 'missing'
   }
 
   #reset(identity = '') {
@@ -91,11 +121,20 @@ export class EventTail {
     try {
       const dir = await fsp.stat(path.dirname(this.#file))
       st = await fsp.stat(this.#file)
-      if (!private_(dir) || !private_(st) || !st.isFile()) return []
-    } catch {
+      if (!private_(dir) || !private_(st)) {
+        this.#problem = 'not-private'
+        return []
+      }
+      if (!st.isFile()) {
+        this.#problem = 'not-a-file'
+        return []
+      }
+    } catch (err) {
+      this.#problem = err?.code === 'ENOENT' ? 'missing' : 'unreadable'
       this.#reset()
       return []
     }
+    this.#problem = null
 
     const identity = `${st.dev}:${st.ino}:${st.birthtimeMs}`
     if (identity !== this.#identity || st.size < this.#offset) this.#reset(identity)
@@ -103,8 +142,8 @@ export class EventTail {
     let skipFirst = false
     if (!this.#seeded) {
       // A file that was already there when the server started: replay only its recent tail.
-      if (st.size > SEED_BYTES) {
-        this.#offset = st.size - SEED_BYTES
+      if (st.size > this.#seedBytes) {
+        this.#offset = st.size - this.#seedBytes
         skipFirst = true
       }
     }
@@ -112,20 +151,26 @@ export class EventTail {
 
     const length = Math.min(st.size - this.#offset, MAX_READ)
     const bytes = Buffer.alloc(length)
-    const fh = await fsp.open(this.#file, 'r')
     try {
-      const { bytesRead } = await fh.read(bytes, 0, length, this.#offset)
-      this.#offset += bytesRead
-      var chunk = bytes.subarray(0, bytesRead)
-    } finally {
-      await fh.close()
+      const fh = await fsp.open(this.#file, 'r')
+      try {
+        const { bytesRead } = await fh.read(bytes, 0, length, this.#offset)
+        this.#offset += bytesRead
+        var chunk = bytes.subarray(0, bytesRead)
+      } finally {
+        await fh.close()
+      }
+    } catch (err) {
+      // It is there and passed every check, but cannot be opened or read: say so, or a doctor would call it quiet.
+      this.#problem = 'unreadable'
+      throw err
     }
     this.more = this.#offset < st.size
 
     const data = Buffer.concat([this.#partial, chunk])
     const cut = data.lastIndexOf(0x0a)
     this.#partial = cut === -1 ? data : data.subarray(cut + 1)
-    if (this.#partial.length > MAX_LINE) this.#partial = Buffer.alloc(0) // a runaway line is dropped, not accumulated
+    if (this.#partial.length > this.#maxLine) this.#partial = Buffer.alloc(0) // a runaway line is dropped, not accumulated
     const complete = cut === -1 ? '' : data.subarray(0, cut).toString('utf8')
 
     const now = this.#now()
@@ -133,7 +178,7 @@ export class EventTail {
     const lines = complete.split('\n')
     if (skipFirst) lines.shift() // the seek landed mid-line
     for (const l of lines) {
-      const e = parseEvent(l, now)
+      const e = this.#parse(l, now)
       if (!e) continue
       if (!this.#seeded && e.at < now - this.#seedMs) continue
       events.push(e)
@@ -143,7 +188,7 @@ export class EventTail {
   }
 
   async #rotateIfLarge(st, events) {
-    if (st.size > this.#maxBytes && this.#offset >= st.size) {
+    if (this.#rotate && st.size > this.#maxBytes && this.#offset >= st.size) {
       try {
         await fsp.rename(this.#file, `${this.#file}.1`)
         this.#reset()
