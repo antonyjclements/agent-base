@@ -3,3 +3,7 @@
 {"ts":"2026-09-26T11:31:33.573Z","event":"review","detail":"code-review-inline","source":"aw-gate"}
 {"ts":"2026-09-26T11:32:50.249Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
 {"ts":"2026-09-26T11:34:09.840Z","event":"synthesize","detail":null,"source":"aw-gate"}
+{"ts":"2026-09-26T23:06:18.363Z","event":"capture","detail":"session","source":"aw-gate"}
+{"ts":"2026-09-26T23:12:48.388Z","event":"review","detail":"code-review","source":"aw-gate"}
+{"ts":"2026-09-26T23:13:12.827Z","event":"capture","detail":"learning,session","source":"aw-gate"}
+{"ts":"2026-09-26T23:14:33.034Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
