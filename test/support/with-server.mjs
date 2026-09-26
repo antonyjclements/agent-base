@@ -9,7 +9,10 @@ import http from 'node:http'
  * The server's opener is swapped for a recorder: `opened` lists every target it was asked to open,
  * and nothing a test does can start a real app. The terminal launcher is swapped the same way:
  * `launched` lists every argument list it was asked to run, and each one is answered as a success.
- * A test that needs it to fail sets its own with `api.setTerminalRunner`.
+ * A test that needs it to fail sets its own with `api.setTerminalRunner`. The cmux "already open"
+ * probe defaults to always answering "no" — `api.setSessionProbe` overrides it — so no test ever
+ * shells out to a real `cmux`. `foregrounded` lists every argument list the foreground step was
+ * asked to run, and it always succeeds, so no test ever raises a real application either.
  */
 export async function withServer(run) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'moon-base-test-'))
@@ -24,6 +27,11 @@ export async function withServer(run) {
     launched.push(argv)
     return { ok: true }
   })
+  api.setSessionProbe(async () => ({ open: false }))
+  const foregrounded = []
+  api.setForegrounder(async (argv) => {
+    foregrounded.push(argv)
+  })
   const server = http.createServer((req, res) => apiMiddleware(req, res, null))
   await new Promise((r) => server.listen(0, '127.0.0.1', r))
   const port = server.address().port
@@ -33,7 +41,7 @@ export async function withServer(run) {
       ...opts,
     })
   try {
-    return await run({ api, call, dir, launched, opened, port, put: (b) => call('/api/state', { method: 'PUT', body: JSON.stringify(b) }) })
+    return await run({ api, call, dir, foregrounded, launched, opened, port, put: (b) => call('/api/state', { method: 'PUT', body: JSON.stringify(b) }) })
   } finally {
     server.close()
     await fsp.rm(dir, { recursive: true, force: true })

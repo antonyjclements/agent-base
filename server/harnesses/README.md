@@ -62,6 +62,12 @@ else read from disk. The folder goes in `cwd`, not in `argv`.
 A harness without these two methods answers "That tool has no terminal command", and the page shows that.
 `test/terminal-handoff.test.mjs` covers what the two built-in adapters return.
 
+When `terminalOpen` resumes a specific session, also return `resumeId`: the exact id being resumed,
+as a plain string (both built-in adapters do this — `cliSessionId` for Claude Code, the rollout id for
+Codex). It is how the cmux launcher asks cmux whether that session is already open before starting a
+second one on it, without parsing a command line back apart. Leave it out where there is no single id
+to resume (`terminalNew`, or a harness whose command does not target one session).
+
 ### There is no `setArchived`, and that is deliberate
 
 Moon Base does not write to a harness. Not the transcripts, not the session records, not one flag.

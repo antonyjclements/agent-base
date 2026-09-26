@@ -664,7 +664,9 @@ async function terminalOpen(ref) {
   const { cliSessionId, cwd } = ref || {}
   if (!isCliId(cliSessionId)) return { ok: false, error: 'No Claude Code session id is on record for that thread' }
   if (typeof cwd !== 'string' || !cwd) return { ok: false, error: 'No folder is on record for that thread' }
-  return { ok: true, argv: ['claude', '--resume', cliSessionId], cwd }
+  // Named separately from `argv` so the server can ask cmux whether this exact session is
+  // already open there, without parsing a command line back apart to find out.
+  return { ok: true, argv: ['claude', '--resume', cliSessionId], cwd, resumeId: cliSessionId }
 }
 
 async function terminalNew(dir) {

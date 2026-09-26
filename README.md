@@ -48,7 +48,11 @@ links. On a machine without them, open Settings → Sessions → **Open sessions
 - **Copy terminal command**: Open puts one line on your clipboard, such as
   `cd '/path/to/repo' && claude --resume <session id>` (or `codex resume <id>`), and the new-thread buttons copy
   `cd '/path/to/repo' && claude` (or `codex`). Paste it into any terminal. Nothing is started.
-- **Terminal (cmux)**: Open resumes the session in a new [cmux](https://cmux.com) workspace in that folder.
+- **Terminal (cmux)**: Open resumes the session in a new [cmux](https://cmux.com) workspace in that folder. If
+  that session is already open in cmux, nothing new is started — the toast says so — because two resumes of
+  the same session would race the one transcript file they both write. Either way, Moon Base also brings the
+  cmux app itself to the front, since cmux's own "focus" only selects a workspace inside its window and does
+  not raise the app over whatever else is in front.
   This is off until you start Moon Base with `MOON_BASE_TERMINAL=cmux`, **from a cmux terminal**:
 
   ```bash

@@ -41,6 +41,10 @@ The launcher is chosen from the server's environment on purpose. A request, or a
 - Adapters gain two optional methods (`terminalOpen`, `terminalNew`). A harness without them reports that it has no terminal command.
 - Not yet verified against a live cmux: whether it is on `PATH` there, and whether `--command` needs the `cd` at all (listed in the spec's Still open).
 
+**Addendum, 2026-09-26 (M6, same day):** running this against a live cmux surfaced a real bug this decision had not accounted for — resuming a thread already open in cmux started a second `claude --resume` on the same session id, in a new workspace, racing the one transcript file both processes write. The fix (D12 in the plan) asks cmux's own `sessions --agent <agent> --session <id> --json` — which needs no running socket — whether a session is already open, and skips the launch when it is. This did not change the decision above; it closes a gap the decision's Consequences should have anticipated (running the same resume command twice was always possible, and always risked this). See `docs/learnings/2026-09-26-cmux-cli-and-socket-observed.md` for what `cmux sessions` returns.
+
+**Second addendum, same day:** the same M6 run also found that cmux never came to the OS foreground, on a fresh launch or on the skip above — `new-workspace --focus true` only selects the workspace inside cmux's own window, and nothing in cmux's CLI raises the application itself. Fixed (D13) by also running `open -a cmux`, best-effort, after either outcome — the same OS primitive the desktop-app opener already uses for `claude://`/`codex://` links, here given a fixed, hardcoded app name rather than anything from a request. This still uses only the two programs AC13 already named (`cmux`, and now `open`, which the desktop-app path already ran); it does not widen what a request can cause to run.
+
 ## Alternatives Considered
 
 - **Restore upstream's terminal launcher as it was.** Rejected: it built command lines from request data and started several kinds of process. Nothing was carried over from it.

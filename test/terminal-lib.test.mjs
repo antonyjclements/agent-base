@@ -12,7 +12,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { commandLine, launcherArgv, launcherFromEnv, pasteLine, runLauncher, shellQuote } from '../server/lib/terminal.mjs'
+import { cmuxSessionOpen, commandLine, foregroundArgv, launcherArgv, launcherFromEnv, pasteLine, runForeground, runLauncher, shellQuote } from '../server/lib/terminal.mjs'
 
 const ID = '019cc762-45a2-7112-89cd-cd345c17e834'
 
@@ -178,6 +178,99 @@ test('a launcher failure is reported as a fixed message, never as the tool’s o
     assert.ok(!result.error.includes(secret), 'nothing from the tool reaches the page')
     assert.deepEqual(Object.keys(result).sort(), ['error', 'ok'])
   }
+})
+
+// ── asking cmux whether a session is already open ──────────────────────────────
+
+/** A `run` that answers the way `execFile('cmux', ['sessions', ...])` would. */
+const fakeSessions = (stdout, seen = []) => (file, args, options, done) => {
+  seen.push({ file, args, options })
+  done(null, stdout, '')
+}
+
+test('cmuxSessionOpen asks for exactly one session and reads whether its stored pid is real', async () => {
+  const seen = []
+  const stdout = JSON.stringify({
+    sessions: [
+      { session_id: 'other', stored_pid_exists: true, workspace_id: 'nope' },
+      { session_id: 'abc', stored_pid_exists: true, workspace_id: 'W1' },
+    ],
+  })
+  const result = await cmuxSessionOpen('claude', 'abc', fakeSessions(stdout, seen))
+  assert.deepEqual(result, { open: true, workspaceId: 'W1' })
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].file, 'cmux')
+  assert.deepEqual(seen[0].args, ['sessions', '--agent', 'claude', '--session', 'abc', '--json'])
+  assert.ok(!seen[0].options.shell, 'no shell')
+})
+
+test('a session cmux has not stored, or whose stored pid is gone, reads as not open', async () => {
+  const notFound = JSON.stringify({ sessions: [] })
+  assert.deepEqual(await cmuxSessionOpen('claude', 'abc', fakeSessions(notFound)), { open: false, workspaceId: '' })
+
+  const stalePid = JSON.stringify({ sessions: [{ session_id: 'abc', stored_pid_exists: false }] })
+  assert.deepEqual(await cmuxSessionOpen('claude', 'abc', fakeSessions(stalePid)), { open: false, workspaceId: '' })
+
+  const noFlag = JSON.stringify({ sessions: [{ session_id: 'abc' }] })
+  assert.deepEqual(await cmuxSessionOpen('claude', 'abc', fakeSessions(noFlag)), { open: false, workspaceId: '' })
+})
+
+test('anything cmux is not expected to say is read as not open, never as a crash', async () => {
+  const oddities = [
+    (file, args, options, done) => done(new Error('cmux: unknown command'), '', 'error'),
+    (file, args, options, done) => done(null, 'not json', ''),
+    (file, args, options, done) => done(null, '[]', ''),
+    (file, args, options, done) => done(null, JSON.stringify({ sessions: 'nope' }), ''),
+    (file, args, options, done) => done(null, JSON.stringify({ sessions: [null, 5, { session_id: 'abc', stored_pid_exists: 'yes' }] }), ''),
+    () => {
+      throw new Error('execFile itself threw')
+    },
+  ]
+  for (const run of oddities) {
+    const result = await cmuxSessionOpen('claude', 'abc', run)
+    assert.equal(result.open, false)
+  }
+})
+
+// ── bringing cmux itself forward ────────────────────────────────────────────────
+
+test('bringing the app forward is only ever `open -a cmux`, only for cmux, only on macOS', () => {
+  assert.deepEqual(foregroundArgv('cmux', 'darwin'), ['open', '-a', 'cmux'])
+  for (const [id, platform] of [
+    ['cmux', 'linux'],
+    ['cmux', 'win32'],
+    ['sh', 'darwin'],
+    ['', 'darwin'],
+    [undefined, 'darwin'],
+    ['constructor', 'darwin'],
+  ]) {
+    assert.equal(foregroundArgv(id, platform), null, `${id}/${platform}`)
+  }
+})
+
+test('bringing the app forward never rejects, whatever the child does', async () => {
+  const cases = [
+    (file, args, options, done) => done(null, '', ''),
+    (file, args, options, done) => done(new Error('cmux quit')),
+    () => {
+      throw new Error('execFile itself threw')
+    },
+  ]
+  for (const run of cases) {
+    await assert.doesNotReject(runForeground(['open', '-a', 'cmux'], run))
+  }
+})
+
+test('bringing the app forward runs the exact argument list, with no shell', async () => {
+  const seen = []
+  await runForeground(['open', '-a', 'cmux'], (file, args, options, done) => {
+    seen.push({ file, args, options })
+    done(null, '', '')
+  })
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].file, 'open')
+  assert.deepEqual(seen[0].args, ['-a', 'cmux'])
+  assert.ok(!seen[0].options.shell)
 })
 
 test('a launcher that throws when it is started is a failure too, not a crash', async () => {

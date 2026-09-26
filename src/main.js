@@ -1235,8 +1235,8 @@ const openMode = () => resolveOpenMode(settings.get('openWith'), terminal)
  */
 async function viaTerminal(mode, target) {
   if (mode === 'terminal') {
-    await terminalLaunch(target)
-    return `Opened in ${terminal.label}`
+    const result = await terminalLaunch(target)
+    return result.already ? `Already open in ${terminal.label}` : `Opened in ${terminal.label}`
   }
   const { command } = await terminalCommand(target)
   if (!(await copyText(command))) throw new Error(`Could not reach the clipboard. The command is: ${command}`)

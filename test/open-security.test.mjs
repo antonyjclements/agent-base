@@ -213,9 +213,15 @@ test('the terminal launcher never runs anything that a request can name', async 
   const serverDir = new URL('../server/', import.meta.url).pathname
   const text = await fsp.readFile(path.join(serverDir, 'lib', 'terminal.mjs'), 'utf8')
   assert.match(text, /\bexecFile\b/, 'it runs the launcher with execFile, an argument list')
-  for (const other of ['sh', 'bash', 'zsh', 'osascript', 'open']) {
+  for (const other of ['sh', 'bash', 'zsh', 'osascript']) {
     assert.ok(!new RegExp(`['"\`]${other}['"\`]`).test(text), `the launcher table never names ${other}`)
   }
+  // `open` appears exactly once, to bring cmux itself forward — a fixed, hardcoded app name that a
+  // request can never change. A second appearance, or a different argument list, fails this check
+  // on purpose: that is exactly the shape a request-controlled `open` would take.
+  const openLiterals = text.match(/['"`]open['"`]/g) || []
+  assert.equal(openLiterals.length, 1, 'open is named exactly once')
+  assert.match(text, /\['open',\s*'-a',\s*'cmux'\]/, 'and only as this fixed argument list')
 })
 
 // ── the request must come from the page itself (AC4) ──────────────────────────

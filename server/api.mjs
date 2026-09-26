@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { schemeHasHandler, schemeOf } from './lib/xdg.mjs'
-import { commandLine, launcherArgv, launcherFromEnv, pasteLine, runLauncher } from './lib/terminal.mjs'
+import { commandLine, cmuxSessionOpen, foregroundArgv, launcherArgv, launcherFromEnv, pasteLine, runForeground, runLauncher } from './lib/terminal.mjs'
 import {
   defaultHarness,
   harnessStatus,
@@ -206,6 +206,33 @@ export const setTerminalRunner = (fn) => {
 }
 
 /**
+ * Whether cmux already has a given session open (`cmuxSessionOpen`), swappable the same way, so a
+ * test never shells out to the real `cmux` to find out.
+ */
+let probeSessionOpen = cmuxSessionOpen
+export const setSessionProbe = (fn) => {
+  probeSessionOpen = fn
+}
+
+/**
+ * Bringing cmux itself forward (`runForeground`), swapped the same way so no test raises a real
+ * application. Its result is never read by the caller either — see `runForeground`.
+ */
+let foregroundTerminal = runForeground
+export const setForegrounder = (fn) => {
+  foregroundTerminal = fn
+}
+
+/** Best-effort, after cmux has (or already had) the session: never lets a foreground problem change the answer already decided. */
+async function tryForeground(launcherId) {
+  const argv = foregroundArgv(launcherId)
+  if (!argv) return
+  await Promise.resolve()
+    .then(() => foregroundTerminal(argv))
+    .catch(() => {})
+}
+
+/**
  * A folder for a new session, and the tool to start in it. The folder must already be the home of
  * a thread the scan found, and still be there; the tool must be a registered one. Both the URL
  * route and the terminal routes ask this, so neither can be looser than the other.
@@ -226,22 +253,28 @@ async function newSessionTarget(body) {
  * `/api/open`, so the adapter's `ref` never comes from the request; and the command is whatever
  * the adapter describes, checked here token by token. Nothing else in the body is read.
  *
- * Returns `{ ok: true, argv, cwd }` or `{ ok: false, status, error }`.
+ * Returns `{ ok: true, argv, cwd, harness, resumeId }` or `{ ok: false, status, error }`.
+ * `resumeId` is the exact session id being resumed, when there is one — an adapter names it
+ * separately from `argv` so the launch route can ask cmux whether that session is already open
+ * without parsing a command line back apart. It is `''` for a new session, which has none yet.
  */
 async function terminalTarget(body) {
   const refuse = (status, error) => ({ ok: false, status, error })
   if (process.platform === 'win32') return refuse(400, 'Terminal commands work on macOS and Linux only')
 
   let answer
+  let harness
   if (body.id !== undefined) {
     const id = typeof body.id === 'string' ? body.id : ''
     if (!id || id.length > 300) return refuse(400, 'Say which thread to open')
     const thread = (await scanThreads()).find((t) => t.id === id)
     if (!thread) return refuse(404, 'That thread is not on this machine any more')
+    harness = thread.harness
     answer = await harnessTerminalOpen(thread.harness, thread.ref)
   } else {
     const target = await newSessionTarget(body)
     if (!target.ok) return refuse(400, target.error)
+    harness = target.harness
     answer = await harnessTerminalNew(target.harness, target.dir)
   }
 
@@ -252,8 +285,11 @@ async function terminalTarget(body) {
   if (!pasteLine({ argv: answer.argv, cwd })) {
     return refuse(400, 'That folder’s name has characters a terminal command cannot carry safely')
   }
-  return { ok: true, argv: answer.argv, cwd }
+  return { ok: true, argv: answer.argv, cwd, harness, resumeId: typeof answer.resumeId === 'string' ? answer.resumeId : '' }
 }
+
+/** The cmux `sessions --agent` name for one of our harness ids, or '' where there is no mapping. */
+const CMUX_AGENT = { 'claude-code': 'claude', codex: 'codex' }
 
 /**
  * Only these two schemes are ever handed to the OS opener. The adapters build their URLs from
@@ -540,12 +576,34 @@ export async function apiMiddleware(req, res, next) {
       }
       const target = await terminalTarget(body)
       if (!target.ok) return send(res, target.status, { ok: false, error: target.error })
+
+      /**
+       * A session cmux already has open is not opened a second time: two `--resume`/`resume`
+       * processes racing the one transcript file is worse than a click that does nothing. The
+       * probe reads cmux's own record and never touches the socket, so this works even when the
+       * launch below would not (Moon Base started outside cmux). A probe that throws, times out
+       * or answers with anything but `{ open: true }` is read as "not open" here too — the same
+       * rule the probe itself follows — so it can never be the reason an ordinary resume fails.
+       */
+      if (launcher.id === 'cmux' && target.resumeId && CMUX_AGENT[target.harness]) {
+        const probe = await Promise.resolve()
+          .then(() => probeSessionOpen(CMUX_AGENT[target.harness], target.resumeId))
+          .catch(() => null)
+        if (probe && probe.open === true) {
+          await tryForeground(launcher.id)
+          return send(res, 200, { ok: true, already: true })
+        }
+      }
+
       const argv = launcherArgv(launcher.id, target)
       if (!argv) return send(res, 400, { ok: false, error: 'Moon Base cannot hand that to the terminal' })
       const result = await Promise.resolve()
         .then(() => runTerminal(argv))
         .catch(() => null)
-      if (result && result.ok === true) return send(res, 200, { ok: true })
+      if (result && result.ok === true) {
+        await tryForeground(launcher.id)
+        return send(res, 200, { ok: true })
+      }
       // Only a plain string is passed on, and the real launcher only ever produces fixed ones.
       const error = typeof result?.error === 'string' ? result.error : `${launcher.label} could not open that session.`
       return send(res, 400, { ok: false, error })

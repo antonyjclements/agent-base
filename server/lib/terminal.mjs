@@ -79,6 +79,33 @@ export function launcherArgv(id, { argv, cwd } = {}) {
   return found.argv(command, cwd)
 }
 
+/**
+ * cmux selects a workspace within its own window (`new-workspace --focus true`), but nothing in its
+ * CLI raises the *application* over whatever else is in front — there is no "activate app" command,
+ * and `focus-window` only brings forward a window already known to be cmux's. `open -a cmux` is the
+ * macOS primitive for that, the same one the OS opener already uses for `claude://`/`codex://`
+ * links, so this reuses it rather than adding a new kind of action. macOS only, and only for cmux:
+ * there is nothing to run anywhere else.
+ */
+export function foregroundArgv(id, platform = process.platform) {
+  return id === 'cmux' && platform === 'darwin' ? ['open', '-a', 'cmux'] : null
+}
+
+/**
+ * Best-effort, and forgotten the moment it is sent: the session already opened, or was already
+ * open, before this ever runs, so there is nothing useful to tell the page either way. Never
+ * rejects and never reports an error, the same as the OS opener's own fire-and-forget launch.
+ */
+export function runForeground(argv, run = execFile) {
+  return new Promise((resolve) => {
+    try {
+      run(argv[0], argv.slice(1), { timeout: 4000, windowsHide: true }, () => resolve())
+    } catch {
+      resolve()
+    }
+  })
+}
+
 const TIMEOUT_MS = 8000
 
 /**
@@ -97,6 +124,38 @@ function failure(err, stdout, stderr) {
   if (/access denied/i.test(`${stderr}\n${stdout}`)) return FAILURES.refused
   if (err.killed || err.signal === 'SIGTERM') return FAILURES.timeout
   return FAILURES.other
+}
+
+/**
+ * Whether cmux already has this session open, read from cmux's own on-disk record —
+ * `cmux sessions --agent <agent> --session <id> --json`, which cmux's own help says needs no
+ * running socket, so this answers even when Moon Base cannot reach cmux's socket to launch
+ * anything. It exists to stop a second `claude --resume`/`codex resume` from starting on a
+ * session that is already running one: two of those at once are racing writes to the one
+ * transcript file both processes think they own.
+ *
+ * Never rejects, and any surprise — `cmux` missing, a nonzero exit, output that will not parse,
+ * a shape this version of cmux has changed — reads as "not open", exactly as if the session had
+ * never been seen. This must never be the reason a real, ordinary resume fails.
+ */
+export function cmuxSessionOpen(agent, id, run = execFile) {
+  return new Promise((resolve) => {
+    const done = (result) => resolve(result)
+    try {
+      run('cmux', ['sessions', '--agent', agent, '--session', id, '--json'], { timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 256 * 1024 }, (err, stdout) => {
+        if (err) return done({ open: false })
+        try {
+          const data = JSON.parse(String(stdout ?? ''))
+          const found = Array.isArray(data?.sessions) ? data.sessions.find((s) => s && s.session_id === id) : null
+          done({ open: found?.stored_pid_exists === true, workspaceId: typeof found?.workspace_id === 'string' ? found.workspace_id : '' })
+        } catch {
+          done({ open: false })
+        }
+      })
+    } catch {
+      done({ open: false })
+    }
+  })
 }
 
 /**

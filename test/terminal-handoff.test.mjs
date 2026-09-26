@@ -299,6 +299,63 @@ for (const [name, route] of [['copy', COMMAND], ['launch', LAUNCH]]) {
   })
 }
 
+// ── bringing cmux itself forward ────────────────────────────────────────────────
+
+test('a successful launch also brings cmux forward', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, foregrounded }) => {
+      const res = await post(call, LAUNCH, { id: CODEX_THREAD })
+      assert.equal(res.status, 200)
+      assert.deepEqual(foregrounded, [['open', '-a', 'cmux']])
+    })
+  )
+})
+
+test('skipping an already-open session still brings cmux forward — that is the point of clicking it', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, foregrounded, launched }) => {
+      api.setSessionProbe(async () => ({ open: true }))
+      const res = await post(call, LAUNCH, { id: CODEX_THREAD })
+      assert.deepEqual(await res.json(), { ok: true, already: true })
+      assert.deepEqual(foregrounded, [['open', '-a', 'cmux']])
+      assert.deepEqual(launched, [])
+    })
+  )
+})
+
+test('nothing is brought forward for copy, for a refused request, or for a failed launch', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, foregrounded }) => {
+      await post(call, COMMAND, { id: CODEX_THREAD })
+      assert.deepEqual(foregrounded, [], 'copy never touches cmux')
+
+      await post(call, LAUNCH, { id: 'codex:nope' })
+      assert.deepEqual(foregrounded, [], 'an unknown thread is refused before anything runs')
+
+      api.setTerminalRunner(async () => ({ ok: false, error: 'cmux could not open that session.' }))
+      const failed = await post(call, LAUNCH, { id: CODEX_THREAD })
+      assert.equal(failed.status, 400)
+      assert.deepEqual(foregrounded, [], 'a launch that failed has nothing to bring forward')
+    })
+  )
+})
+
+test('a foreground step that throws is forgotten, and never changes the answer', async () => {
+  // The contract with `setForegrounder` is that it resolves; the real `runForeground` guarantees
+  // that with `execFile`'s own timeout. A stub that never resolves would hang this test, not the
+  // server, so it is not something a test can safely stand in for — only a throw is exercised here.
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call }) => {
+      api.setForegrounder(async () => {
+        throw new Error('boom')
+      })
+      const res = await post(call, LAUNCH, { id: CODEX_THREAD })
+      assert.equal(res.status, 200)
+      assert.deepEqual(await res.json(), { ok: true })
+    })
+  )
+})
+
 // ── the launcher ──────────────────────────────────────────────────────────────
 
 test('launching is off unless the environment turns it on, and says so', async () => {
@@ -350,6 +407,93 @@ test('with cmux on, a new session opens the bare tool in the repo', async () => 
   )
 })
 
+// ── not duplicating a session cmux already has open ───────────────────────────
+
+test('a session cmux already has open is not launched a second time', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      const probed = []
+      api.setSessionProbe(async (agent, id) => {
+        probed.push([agent, id])
+        return { open: true, workspaceId: 'W1' }
+      })
+      const codexRes = await post(call, LAUNCH, { id: CODEX_THREAD })
+      assert.equal(codexRes.status, 200)
+      assert.deepEqual(await codexRes.json(), { ok: true, already: true })
+      assert.deepEqual(probed, [['codex', SESSION_ID]])
+
+      probed.length = 0
+      const claudeRes = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+      assert.deepEqual(await claudeRes.json(), { ok: true, already: true })
+      assert.deepEqual(probed, [['claude', SESSION_ID]])
+
+      assert.deepEqual(launched, [], 'no cmux workspace was started for either')
+    })
+  )
+})
+
+test('the probe is asked only for a launcher resuming a known session, never for a new one', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      let calls = 0
+      api.setSessionProbe(async () => {
+        calls++
+        return { open: false }
+      })
+      await post(call, LAUNCH, { folder: repo, harness: 'codex' })
+      assert.equal(calls, 0, 'a new session has no existing id to ask about')
+      assert.equal(launched.length, 1)
+    })
+  )
+})
+
+test('the probe is never reached for copy, or without a launcher', async () => {
+  let calls = 0
+  const probe = async () => {
+    calls++
+    return { open: true }
+  }
+  await withServer(async ({ api, call }) => {
+    api.setSessionProbe(probe)
+    await post(call, COMMAND, { id: CODEX_THREAD })
+  })
+  assert.equal(calls, 0, 'copying never asks cmux anything')
+
+  await withLauncher(undefined, () =>
+    withServer(async ({ api, call }) => {
+      api.setSessionProbe(probe)
+      await post(call, LAUNCH, { id: CODEX_THREAD })
+    })
+  )
+  assert.equal(calls, 0, 'with no launcher on, launch is refused before the probe would run')
+})
+
+test('a probe that throws, times out or answers oddly never blocks a real launch', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      const probes = [
+        async () => {
+          throw new Error('boom')
+        },
+        async () => null,
+        async () => undefined,
+        async () => ({}),
+        async () => ({ open: false }),
+        async () => ({ open: 'yes' }),
+        async () => 'open',
+      ]
+      for (const probe of probes) {
+        launched.length = 0
+        api.setSessionProbe(probe)
+        const res = await post(call, LAUNCH, { id: CODEX_THREAD })
+        assert.equal(res.status, 200, String(probe))
+        assert.deepEqual(await res.json(), { ok: true })
+        assert.equal(launched.length, 1, String(probe))
+      }
+    })
+  )
+})
+
 test('a failed launch is told to the page in the launcher’s own fixed words', async () => {
   await withLauncher('cmux', () =>
     withServer(async ({ api, call, launched }) => {
@@ -394,14 +538,14 @@ test('adapters answer with an argument list and a folder, and nothing else', asy
   const { commandLine } = await import('../server/lib/terminal.mjs')
 
   const answers = [
-    [await claudeCode.terminalOpen({ cliSessionId: CLI_ONLY, cwd: '/tmp/demo' }), ['claude', '--resume', CLI_ONLY]],
-    [await claudeCode.terminalOpen({ cliSessionId: CLI_ONLY, desktopSessionId: `local_${CLI_ONLY}`, cwd: '/tmp/demo' }), ['claude', '--resume', CLI_ONLY]],
-    [await claudeCode.terminalNew('/tmp/demo'), ['claude']],
-    [await codex.terminalOpen({ sessionId: SESSION_ID, cwd: '/tmp/demo' }), ['codex', 'resume', SESSION_ID]],
-    [await codex.terminalNew('/tmp/demo'), ['codex']],
+    [await claudeCode.terminalOpen({ cliSessionId: CLI_ONLY, cwd: '/tmp/demo' }), ['claude', '--resume', CLI_ONLY], CLI_ONLY],
+    [await claudeCode.terminalOpen({ cliSessionId: CLI_ONLY, desktopSessionId: `local_${CLI_ONLY}`, cwd: '/tmp/demo' }), ['claude', '--resume', CLI_ONLY], CLI_ONLY],
+    [await claudeCode.terminalNew('/tmp/demo'), ['claude'], undefined],
+    [await codex.terminalOpen({ sessionId: SESSION_ID, cwd: '/tmp/demo' }), ['codex', 'resume', SESSION_ID], SESSION_ID],
+    [await codex.terminalNew('/tmp/demo'), ['codex'], undefined],
   ]
-  for (const [answer, argv] of answers) {
-    assert.deepEqual(answer, { ok: true, argv, cwd: '/tmp/demo' })
+  for (const [answer, argv, resumeId] of answers) {
+    assert.deepEqual(answer, resumeId === undefined ? { ok: true, argv, cwd: '/tmp/demo' } : { ok: true, argv, cwd: '/tmp/demo', resumeId })
     assert.notEqual(commandLine(answer.argv), null, 'every token is one the server will accept')
   }
 })

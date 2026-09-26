@@ -342,7 +342,9 @@ async function terminalOpen(ref) {
   const { sessionId: id, cwd } = ref || {}
   if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'No openable Codex session id on that thread' }
   if (typeof cwd !== 'string' || !cwd) return { ok: false, error: 'No folder is on record for that thread' }
-  return { ok: true, argv: ['codex', 'resume', id], cwd }
+  // Named separately from `argv` so the server can ask cmux whether this exact session is
+  // already open there, without parsing a command line back apart to find out.
+  return { ok: true, argv: ['codex', 'resume', id], cwd, resumeId: id }
 }
 
 async function terminalNew(dir) {
