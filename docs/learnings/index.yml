@@ -144,3 +144,11 @@ learnings:
       - hooks
       - claude-code
       - moon-base
+  - path: docs/learnings/2026-09-27-ismeta-marks-harness-injected-transcript-turns.md
+    title: A transcript's `isMeta` flag marks what the harness injected, not what the person typed
+    scope: repo
+    status: tentative
+    tags:
+      - claude-code
+      - parsing
+      - moon-base
