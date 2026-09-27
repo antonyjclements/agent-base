@@ -160,9 +160,15 @@ function firstText(content) {
   return ''
 }
 
-/** Strip <system-reminder>/<command-*> noise the CLI wraps around prompts. */
+/**
+ * Strip <system-reminder>/<command-*> noise the CLI wraps around prompts. A slash command's own typed
+ * arguments live inside <command-args>, and are the one thing in that wrapper a person actually wrote,
+ * so they are pulled out and kept; an argument-less invocation still strips to nothing, as before.
+ */
 function cleanPrompt(s) {
-  return String(s)
+  const text = String(s)
+  const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim()
+  return (args || text)
     .replace(/<([a-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -184,7 +190,10 @@ function readTranscriptMeta(records) {
       const t = Date.parse(r.timestamp)
       if (!Number.isNaN(t)) meta.startedAt = t
     }
-    if (!meta.firstPrompt && r.type === 'user' && r.message) {
+    // `isMeta` marks a turn the harness injected rather than one the person typed — a slash command's
+    // own loaded skill file is exactly this shape, and reads as plain text with nothing to strip, so it
+    // would otherwise win as the title. Skip it and let the search continue to whatever comes next.
+    if (!meta.firstPrompt && r.type === 'user' && r.message && !r.isMeta) {
       const text = cleanPrompt(firstText(r.message.content))
       if (text && !text.startsWith('<')) meta.firstPrompt = text
     }

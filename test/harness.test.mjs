@@ -330,6 +330,71 @@ test('a record the app still holds outranks a leftover deletion marker', async (
   await fsp.rm(fx.root, { recursive: true, force: true })
 })
 
+// ── what becomes a thread's title, from a CLI transcript alone ────────────────
+
+/** A slash-command invocation, exactly as the CLI wraps it: its wrapper tags around the typed arguments. */
+const commandInvocation = (name, args = '') => ({
+  type: 'user',
+  cwd: '/tmp/demo',
+  timestamp: '2026-09-07T12:00:00.000Z',
+  message: { role: 'user', content: `<command-name>/${name}</command-name>\n            <command-message>${name}</command-message>\n            <command-args>${args}</command-args>` },
+})
+
+/** The skill file the CLI loads for a command, marked `isMeta`, exactly as it is on disk (observed 2026-09-27). */
+const skillLoad = (name) => ({
+  type: 'user',
+  cwd: '/tmp/demo',
+  timestamp: '2026-09-07T12:00:01.000Z',
+  isMeta: true,
+  message: { role: 'user', content: `Base directory for this skill: /Users/x/.claude/skills/${name}\n\n# ${name}\n\nSome instructions.` },
+})
+
+test("a slash command's typed argument text is the title, not its wrapper tags", async () => {
+  const fx = await fakeClaude({ transcript: [commandInvocation('aw-commit-push-pr', 'push everything directly to main')] })
+  const h = await claudeWith(fx)
+  const [t] = await h.scanThreads()
+  assert.equal(t.title, 'push everything directly to main')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('a command with no typed arguments falls through to whatever the transcript says next', async () => {
+  const fx = await fakeClaude({ transcript: [commandInvocation('aw-work', ''), typed('a real question')] })
+  const h = await claudeWith(fx)
+  const [t] = await h.scanThreads()
+  assert.equal(t.title, 'a real question')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('text after an empty <command-args> tag is not discarded along with it', async () => {
+  const record = {
+    type: 'user',
+    cwd: '/tmp/demo',
+    timestamp: '2026-09-07T12:00:00.000Z',
+    message: { role: 'user', content: '<command-name>/foo</command-name>\n<command-args></command-args>\nleftover directive text' },
+  }
+  const fx = await fakeClaude({ transcript: [record] })
+  const h = await claudeWith(fx)
+  const [t] = await h.scanThreads()
+  assert.equal(t.title, 'leftover directive text')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test("a skill's own loaded file is never the title, even with nothing else in the transcript", async () => {
+  const fx = await fakeClaude({ transcript: [skillLoad('aw-commit-push-pr')] })
+  const h = await claudeWith(fx)
+  const [t] = await h.scanThreads()
+  assert.equal(t.title, 'Untitled thread', 'harness bookkeeping is not a substitute for what the person asked')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('a genuine prompt that follows a loaded skill still becomes the title, in order', async () => {
+  const fx = await fakeClaude({ transcript: [skillLoad('aw-work'), typed('actually fix the login bug')] })
+  const h = await claudeWith(fx)
+  const [t] = await h.scanThreads()
+  assert.equal(t.title, 'actually fix the login bug')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
 // ── Claude's own busy/idle marker (AC14) ──────────────────────────────────────
 
 /** A pid that is certainly gone: a child that ran and exited. */
