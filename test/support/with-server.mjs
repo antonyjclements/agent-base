@@ -11,8 +11,10 @@ import http from 'node:http'
  * `launched` lists every argument list it was asked to run, and each one is answered as a success.
  * A test that needs it to fail sets its own with `api.setTerminalRunner`. The cmux "already open"
  * probe defaults to always answering "no" — `api.setSessionProbe` overrides it — so no test ever
- * shells out to a real `cmux`. `foregrounded` lists every argument list the foreground step was
- * asked to run, and it always succeeds, so no test ever raises a real application either.
+ * shells out to a real `cmux`. The Claude marker check that backs it up defaults to "no" too
+ * (`api.setRunningProbe`), so no test reads the real `~/.claude/sessions`, which on a developer's machine
+ * holds live sessions. `foregrounded` lists every argument list the foreground step was asked to run, and
+ * it always succeeds, so no test ever raises a real application either.
  */
 export async function withServer(run) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'moon-base-test-'))
@@ -30,6 +32,7 @@ export async function withServer(run) {
     return { ok: true }
   })
   api.setSessionProbe(async () => ({ open: false }))
+  api.setRunningProbe(async () => false)
   const foregrounded = []
   api.setForegrounder(async (argv) => {
     foregrounded.push(argv)

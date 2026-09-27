@@ -27,3 +27,13 @@ export function resolveOpenMode(setting, launcher) {
   if (setting === 'terminal') return hasLauncher ? 'terminal' : 'copy'
   return 'app'
 }
+
+/**
+ * What the person is told after a terminal launch. A session cmux reports as open is "already open in"
+ * that terminal. One that only Claude's own record shows running (`via: 'claude'`, the case when cmux's
+ * integration is off) is "already running", with no terminal named: that record cannot say which holds it.
+ */
+export function launchNote(result, label) {
+  if (!result?.already) return `Opened in ${label}`
+  return result.via === 'claude' ? 'Already running: Claude Code has that session open' : `Already open in ${label}`
+}

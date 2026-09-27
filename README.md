@@ -63,6 +63,14 @@ links. On a machine without them, open Settings → Sessions → **Open sessions
   the same session would race the one transcript file they both write. Either way, Moon Base also brings the
   cmux app itself to the front, since cmux's own "focus" only selects a workspace inside its window and does
   not raise the app over whatever else is in front.
+  Moon Base asks two things whether a session is already open. One is cmux's own record, which cmux fills
+  through its **Claude Code integration**. If that setting is off in cmux (it is on by default), the record is
+  empty and would never say "already open". So for Claude Code Moon Base also asks Claude's own record of its
+  running processes (`~/.claude/sessions`), which needs no hooks: a live terminal session with that id also
+  counts, and the toast then says "Already running" without naming a terminal, since that record cannot say
+  which one. A session the Claude desktop app is holding warm does not count. Codex has no such record, so
+  Codex resume relies on cmux's. If a stale record ever holds a Resume back, **Copy terminal command** always
+  works, and `moonbase1 doctor` shows what each check sees.
   With Automatic, the default, this is what you get when Moon Base was started **inside a cmux terminal**:
   `moonbase1` turns the launcher on there by itself. To do it by hand, start Moon Base from a cmux terminal
   with `MOON_BASE_TERMINAL=cmux`:

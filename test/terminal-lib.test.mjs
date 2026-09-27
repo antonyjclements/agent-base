@@ -12,7 +12,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { cmuxSessionOpen, commandLine, foregroundArgv, launcherArgv, launcherFromEnv, pasteLine, runForeground, runLauncher, shellQuote } from '../server/lib/terminal.mjs'
+import { cmuxSessionOpen, cmuxSessionsSummary, commandLine, foregroundArgv, launcherArgv, launcherFromEnv, pasteLine, runForeground, runLauncher, shellQuote } from '../server/lib/terminal.mjs'
 
 const ID = '019cc762-45a2-7112-89cd-cd345c17e834'
 
@@ -230,6 +230,56 @@ test('anything cmux is not expected to say is read as not open, never as a crash
     const result = await cmuxSessionOpen('claude', 'abc', run)
     assert.equal(result.open, false)
   }
+})
+
+// ── what cmux knows, for the doctor ───────────────────────────────────────────
+
+test('cmuxSessionsSummary counts the Claude sessions cmux knows, and returns nothing else about them', async () => {
+  const seen = []
+  const stdout = JSON.stringify({
+    sessions: [
+      { session_id: 'secret-id-1', cwd: '/secret/folder', stored_pid_exists: true },
+      { session_id: 'secret-id-2', cwd: '/secret/other', stored_pid_exists: false },
+    ],
+    stores: [{ path: '/secret/store.json' }],
+  })
+  const result = await cmuxSessionsSummary(fakeSessions(stdout, seen))
+  assert.deepEqual(result, { answered: true, count: 2 })
+  assert.ok(!JSON.stringify(result).includes('secret'), 'no id, folder or path leaves this function')
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].file, 'cmux')
+  assert.deepEqual(seen[0].args, ['sessions', '--agent', 'claude', '--json'])
+  assert.ok(!seen[0].options.shell, 'no shell')
+})
+
+test('the count is the total cmux says it holds, not just the page of it that was listed', async () => {
+  const capped = JSON.stringify({ limit: 100, total_matches: 130, sessions: [{ session_id: 'a' }] })
+  assert.deepEqual(await cmuxSessionsSummary(fakeSessions(capped)), { answered: true, count: 130 })
+  for (const total of ['many', -1, 1.5, null]) {
+    const odd = JSON.stringify({ total_matches: total, sessions: [{ session_id: 'a' }, { session_id: 'b' }] })
+    assert.deepEqual(await cmuxSessionsSummary(fakeSessions(odd)), { answered: true, count: 2 }, String(total))
+  }
+})
+
+test('an empty list is an answer, and the answer is zero', async () => {
+  assert.deepEqual(await cmuxSessionsSummary(fakeSessions(JSON.stringify({ sessions: [] }))), { answered: true, count: 0 })
+})
+
+test('a cmux that is missing, fails, or says something unexpected is not an answer, and never a crash', async () => {
+  const missing = Object.assign(new Error('spawn cmux ENOENT'), { code: 'ENOENT' })
+  assert.deepEqual(await cmuxSessionsSummary((file, args, options, done) => done(missing, '', '')), { answered: false, why: 'missing' })
+
+  const failures = [
+    (file, args, options, done) => done(new Error('cmux: unknown command'), '', 'error'),
+    (file, args, options, done) => done(null, 'not json', ''),
+    (file, args, options, done) => done(null, '[]', ''),
+    (file, args, options, done) => done(null, JSON.stringify({ sessions: 'nope' }), ''),
+    (file, args, options, done) => done(null, JSON.stringify({}), ''),
+    () => {
+      throw new Error('execFile itself threw')
+    },
+  ]
+  for (const run of failures) assert.deepEqual(await cmuxSessionsSummary(run), { answered: false, why: 'failed' }, String(run))
 })
 
 // ── bringing cmux itself forward ────────────────────────────────────────────────

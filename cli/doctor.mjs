@@ -1,7 +1,8 @@
 /**
  * `moonbase1 doctor`: what start would decide, and why each live source is or is not reporting. It reads
- * and reports and nothing else: it starts nothing, writes nothing, and always exits 0, because "cmux is
- * off" is an answer, not a failure.
+ * and reports and nothing else: it starts no session, writes nothing, and always exits 0, because "cmux is
+ * off" is an answer, not a failure. The one command it runs is cmux's own read-only `sessions` listing, to
+ * say whether Resume's already-open check can rely on it.
  *
  * It says kinds, counts and ages. It never prints what a session said (a cmux row's content), an
  * environment value, a path or an id: the person running it may paste the output into a chat to ask why
@@ -12,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { cmuxFile, cmuxStatusEnabled } from '../server/hooks/cmux.mjs'
 import { eventsFile } from '../server/hooks/events.mjs'
 import { LiveStatus } from '../server/hooks/live.mjs'
+import { cmuxSessionsSummary } from '../server/lib/terminal.mjs'
 import { buildState } from './build.mjs'
 import { insideCmux } from './cmux-env.mjs'
 import { DEFAULT_PORT, PORT_SPAN, pickPort, probePort, urlHost } from './port.mjs'
@@ -57,6 +59,7 @@ export async function doctor(_argv, io = {}) {
   const probe = io.probe ?? probePort
   const build = io.build ?? { state: buildState }
   const markers = io.markers ?? defaultMarkers
+  const cmuxSessions = io.cmuxSessions ?? cmuxSessionsSummary
   const makeLive = io.makeLive ?? ((options) => new LiveStatus(options))
   const row = (label, text) => out(`  ${`${label}:`.padEnd(20)}${text}`)
 
@@ -105,16 +108,34 @@ export async function doctor(_argv, io = {}) {
   row(
     'cmux stream',
     cmuxOn
-      ? describe(sources.cmux, { what: 'row', missing: 'not found (is cmux installed? it keeps its stream in ~/.cmuxterm)' }, t)
+      ? describe(sources.cmux, { what: 'row', missing: 'not found. cmux writes its stream only while its Claude Code integration is on; without it, status comes from Claude’s own busy marker' }, t)
       : 'switched off (MOON_BASE_CMUX_STATUS)'
   )
   const found = [...(await markers()).values()]
   const count = (status) => found.filter((m) => m.status === status).length
+  const terminal = found.filter((m) => m.cli === true).length
   row(
     'Claude markers',
     found.length
-      ? `${found.length} live session${found.length === 1 ? '' : 's'} (${count('busy')} busy, ${count('idle')} idle)`
+      ? `${found.length} live session${found.length === 1 ? '' : 's'} (${count('busy')} busy, ${count('idle')} idle); ${terminal} in a terminal`
       : 'no live sessions'
+  )
+
+  // Why a Resume might open a second workspace: what cmux knows is only as good as its Claude Code integration.
+  const known = await Promise.resolve()
+    .then(() => cmuxSessions())
+    .catch(() => ({ answered: false, why: 'failed' }))
+  const nowRunning = `${terminal} live terminal session${terminal === 1 ? '' : 's'} now`
+  const fallback = `Resume falls back to Claude’s own marker (${nowRunning})`
+  row(
+    'Resume check',
+    known.answered && known.count > 0
+      ? `cmux knows ${known.count} Claude session${known.count === 1 ? '' : 's'}, and Claude’s own marker is checked too (${nowRunning})`
+      : known.answered
+        ? `cmux answers but knows no Claude sessions (none is open in cmux, or its Claude Code integration is off). ${fallback}`
+        : known.why === 'missing'
+          ? `the cmux command was not found on the PATH. ${fallback}`
+          : `cmux did not answer. ${fallback}`
   )
   return 0
 }

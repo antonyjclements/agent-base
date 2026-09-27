@@ -494,6 +494,138 @@ test('a probe that throws, times out or answers oddly never blocks a real launch
   )
 })
 
+// ── not duplicating a running session, when cmux does not know it (its integration is off) ───────
+
+test('a session cmux does not know, but Claude’s own marker shows running, is not launched a second time', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, foregrounded, launched }) => {
+      const asked = []
+      api.setRunningProbe(async (harness, id) => (asked.push([harness, id]), true))
+      const res = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+      assert.equal(res.status, 200)
+      assert.deepEqual(await res.json(), { ok: true, already: true, via: 'claude' })
+      assert.deepEqual(asked, [['claude-code', SESSION_ID]])
+      assert.deepEqual(launched, [], 'no second workspace')
+      assert.deepEqual(foregrounded, [['open', '-a', 'cmux']], 'cmux is still brought forward')
+    })
+  )
+})
+
+test('when cmux itself knows the session the answer is exactly what it was, with no mention of the marker', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      api.setSessionProbe(async () => ({ open: true, workspaceId: 'W1' }))
+      for (const marker of [async () => true, async () => false, async () => {
+        throw new Error('boom')
+      }]) {
+        api.setRunningProbe(marker)
+        const res = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+        assert.deepEqual(await res.json(), { ok: true, already: true }, String(marker))
+      }
+      assert.deepEqual(launched, [])
+    })
+  )
+})
+
+test('neither check finding the session running launches it, as before', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      api.setSessionProbe(async () => ({ open: false }))
+      api.setRunningProbe(async () => false)
+      const res = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+      assert.deepEqual(await res.json(), { ok: true })
+      assert.equal(launched.length, 1)
+    })
+  )
+})
+
+test('a marker check that throws or answers oddly never blocks a real launch', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      const checks = [
+        async () => {
+          throw new Error('boom')
+        },
+        async () => null,
+        async () => undefined,
+        async () => 'true',
+        async () => 1,
+        async () => ({ open: true }),
+        () => {
+          throw new Error('sync boom')
+        },
+      ]
+      for (const check of checks) {
+        launched.length = 0
+        api.setRunningProbe(check)
+        const res = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+        assert.equal(res.status, 200, String(check))
+        assert.deepEqual(await res.json(), { ok: true }, String(check))
+        assert.equal(launched.length, 1, String(check))
+      }
+    })
+  )
+})
+
+test('the marker check is asked only when resuming a known session with the launcher on', async () => {
+  let calls = 0
+  const check = async () => (calls++, true)
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, launched }) => {
+      api.setRunningProbe(check)
+      await post(call, LAUNCH, { folder: repo, harness: 'claude-code' })
+      assert.equal(calls, 0, 'a new session has no id to ask about')
+      assert.equal(launched.length, 1)
+    })
+  )
+  await withServer(async ({ api, call }) => {
+    api.setRunningProbe(check)
+    await post(call, COMMAND, { id: DESKTOP_THREAD })
+  })
+  assert.equal(calls, 0, 'copying starts nothing, so there is nothing to hold back')
+  await withLauncher(undefined, () =>
+    withServer(async ({ api, call }) => {
+      api.setRunningProbe(check)
+      await post(call, LAUNCH, { id: DESKTOP_THREAD })
+    })
+  )
+  assert.equal(calls, 0, 'with no launcher on, launch is refused before it would run')
+})
+
+test('through the real adapters: a live terminal marker holds a Claude resume back, a desktop-app one does not, and Codex still launches', async () => {
+  const marker = path.join(claude.configDir, 'sessions', `${process.pid}.json`)
+  const write = (entrypoint) =>
+    fsp.mkdir(path.dirname(marker), { recursive: true }).then(() =>
+      fsp.writeFile(marker, JSON.stringify({ pid: process.pid, sessionId: SESSION_ID, cwd: repo, kind: 'interactive', status: 'idle', entrypoint }))
+    )
+  const { sessionRunning } = await import('../server/scan.mjs')
+  try {
+    await withLauncher('cmux', () =>
+      withServer(async ({ api, call, launched }) => {
+        api.setRunningProbe(sessionRunning) // the real one, reading the fixture's own markers
+
+        await write('cli')
+        const held = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+        assert.deepEqual(await held.json(), { ok: true, already: true, via: 'claude' })
+        assert.deepEqual(launched, [])
+
+        await write('claude-desktop')
+        const warmed = await post(call, LAUNCH, { id: DESKTOP_THREAD })
+        assert.deepEqual(await warmed.json(), { ok: true })
+        assert.equal(launched.length, 1, 'a desktop-app process does not stop a terminal resume')
+
+        await write('cli')
+        launched.length = 0
+        const codexRes = await post(call, LAUNCH, { id: CODEX_THREAD })
+        assert.deepEqual(await codexRes.json(), { ok: true })
+        assert.equal(launched.length, 1, 'Codex has no marker, so a Claude marker never holds it back')
+      })
+    )
+  } finally {
+    await fsp.rm(marker, { force: true })
+  }
+})
+
 test('a failed launch is told to the page in the launcher’s own fixed words', async () => {
   await withLauncher('cmux', () =>
     withServer(async ({ api, call, launched }) => {

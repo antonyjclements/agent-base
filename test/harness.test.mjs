@@ -408,3 +408,74 @@ test('two live processes for one session: the newer marker wins, and a tie goes 
     }
   }
 })
+
+// ── is this session running in a terminal right now (AC13: Resume without cmux's hooks) ──────────
+
+const OTHER_SESSION = '11111111-2222-4333-8444-555555555555'
+const TERMINAL = { entrypoint: 'cli' }
+const DESKTOP_APP = { entrypoint: 'claude-desktop' }
+
+/** Ask the adapter whether `id` is running, with these markers on disk (none, one, or a list). */
+async function running(markers, id = SESSION_ID) {
+  const fx = await fakeClaude({ transcript: [typed('tidy the ledger')] })
+  for (const m of [].concat(markers ?? [])) await writeMarker(fx.configDir, m)
+  const h = await claudeWith(fx)
+  const answer = await h.sessionRunning(id)
+  await fsp.rm(fx.root, { recursive: true, force: true })
+  return answer
+}
+
+test('a live terminal process for the session counts as running, busy or idle', async () => {
+  assert.equal(await running({ status: 'busy', extra: TERMINAL }), true)
+  assert.equal(await running({ status: 'idle', extra: TERMINAL }), true, 'idle at the prompt is still running')
+  assert.equal(await running({}), true, 'a marker that names no host is not the desktop app')
+})
+
+test('what is not a live terminal process for that session does not count', async () => {
+  assert.equal(await running({ extra: DESKTOP_APP }), false, 'the desktop app keeps idle sessions warm, and they must not stop a terminal resume')
+  assert.equal(await running({ pid: deadPid(), extra: TERMINAL }), false, 'its process is gone')
+  assert.equal(await running({ sessionId: OTHER_SESSION, extra: TERMINAL }), false, 'a different session')
+  assert.equal(await running(null), false, 'no marker at all')
+  assert.equal(await running({ extra: { ...TERMINAL, sessionId: undefined } }, undefined), false, 'a marker with no session id matches nothing, not even a missing id')
+})
+
+test('a desktop-app process does not hide a terminal process for the same session, in either file order', async () => {
+  const alive = [process.pid, process.ppid]
+  for (const flip of [false, true]) {
+    for (const desktopNewer of [false, true]) {
+      const markers = [
+        { pid: alive[0], at: desktopNewer ? 2000 : 1000, extra: DESKTOP_APP },
+        { pid: alive[1], at: desktopNewer ? 1000 : 2000, extra: TERMINAL },
+      ]
+      assert.equal(await running(flip ? [...markers].reverse() : markers), true, `flip=${flip} desktopNewer=${desktopNewer}`)
+    }
+  }
+})
+
+test('a marker file that is not JSON is skipped, and a terminal process is still found', async () => {
+  const fx = await fakeClaude({ transcript: [typed('tidy the ledger')] })
+  await fsp.mkdir(path.join(fx.configDir, 'sessions'), { recursive: true })
+  await fsp.writeFile(path.join(fx.configDir, 'sessions', '1.json'), '{ not json')
+  await writeMarker(fx.configDir, { extra: TERMINAL })
+  const h = await claudeWith(fx)
+  assert.equal(await h.sessionRunning(SESSION_ID), true)
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('the markers the doctor reads say which live processes are terminal ones', async () => {
+  const fx = await fakeClaude({ transcript: [typed('tidy the ledger')] })
+  await writeMarker(fx.configDir, { pid: process.pid, sessionId: SESSION_ID, extra: DESKTOP_APP })
+  await writeMarker(fx.configDir, { pid: process.ppid, sessionId: OTHER_SESSION, extra: TERMINAL })
+  await claudeWith(fx) // points the adapter at this fixture
+  const mod = await import(`../server/harnesses/claude-code.mjs?${fx.configDir}`)
+  const markers = await mod.liveSessionMarkers()
+  assert.equal(markers.get(SESSION_ID).cli, false)
+  assert.equal(markers.get(OTHER_SESSION).cli, true)
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('the registry answers not running for a tool it does not know, and for one that keeps no such record', async () => {
+  const { sessionRunning } = await import('../server/scan.mjs')
+  assert.equal(await sessionRunning('no-such-tool', SESSION_ID), false, 'an unknown tool is an error inside, and an error reads as no')
+  assert.equal(await sessionRunning('codex', SESSION_ID), false, 'Codex has no marker to ask')
+})

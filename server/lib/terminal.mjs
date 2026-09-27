@@ -159,6 +159,34 @@ export function cmuxSessionOpen(agent, id, run = execFile) {
 }
 
 /**
+ * For the doctor: does `cmux sessions` answer, and how many Claude sessions does it know? The count and
+ * nothing else — each session it lists carries an id, a folder and more, and none of it leaves this function.
+ * `{ answered: true, count }`, or `{ answered: false, why: 'missing' | 'failed' }` (`missing` is no `cmux`
+ * on the PATH). Never rejects. Like `cmuxSessionOpen` it runs one fixed argument list with no shell.
+ */
+export function cmuxSessionsSummary(run = execFile) {
+  return new Promise((resolve) => {
+    const failed = (why) => resolve({ answered: false, why })
+    try {
+      run('cmux', ['sessions', '--agent', 'claude', '--json'], { timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+        if (err) return failed(err.code === 'ENOENT' ? 'missing' : 'failed')
+        try {
+          const data = JSON.parse(String(stdout ?? ''))
+          if (!Array.isArray(data?.sessions)) return failed('failed')
+          // The list is capped (100 by default); the total is what cmux says it holds.
+          const total = Number.isInteger(data.total_matches) && data.total_matches >= 0 ? data.total_matches : data.sessions.length
+          resolve({ answered: true, count: total })
+        } catch {
+          failed('failed')
+        }
+      })
+    } catch {
+      failed('failed')
+    }
+  })
+}
+
+/**
  * Run a launcher's argument list once and wait for it, so the page hears whether it worked. Never
  * rejects: a launcher that cannot start is an answer, not a crash. `run` is `execFile`, and is
  * only a parameter so a test can answer for it.

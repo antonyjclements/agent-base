@@ -156,3 +156,17 @@ export const terminalNew = async (harnessId, dir) => {
   const h = dispatch(harnessId)
   return h.terminalNew ? h.terminalNew(dir) : NO_TERMINAL
 }
+
+/**
+ * Whether the tool has a process running this exact session right now, from its own records rather than any
+ * hook. Optional: a harness with no such record answers false, and so does any failure, so this can only ever
+ * hold a resume back on evidence.
+ */
+export const sessionRunning = async (harnessId, sessionId) => {
+  try {
+    const h = dispatch(harnessId)
+    return h.sessionRunning ? (await h.sessionRunning(sessionId)) === true : false
+  } catch {
+    return false
+  }
+}

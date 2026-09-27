@@ -14,6 +14,7 @@ import {
   newSession as harnessNewSession,
   openThread as harnessOpenThread,
   scanThreads,
+  sessionRunning as harnessSessionRunning,
   terminalNew as harnessTerminalNew,
   terminalOpen as harnessTerminalOpen,
 } from './scan.mjs'
@@ -222,6 +223,16 @@ export const setTerminalRunner = (fn) => {
 let probeSessionOpen = cmuxSessionOpen
 export const setSessionProbe = (fn) => {
   probeSessionOpen = fn
+}
+
+/**
+ * Whether the tool itself has a process running a given session (`harnessSessionRunning`), from its own
+ * records rather than any hook: the second check on a resume, for when cmux's Claude Code integration is off
+ * and its own record is empty. Swappable the same way, so a test never reads the real `~/.claude/sessions`.
+ */
+let probeSessionRunning = harnessSessionRunning
+export const setRunningProbe = (fn) => {
+  probeSessionRunning = fn
 }
 
 /**
@@ -602,20 +613,33 @@ export async function apiMiddleware(req, res, next) {
       if (!target.ok) return send(res, target.status, { ok: false, error: target.error })
 
       /**
-       * A session cmux already has open is not opened a second time: two `--resume`/`resume`
-       * processes racing the one transcript file is worse than a click that does nothing. The
-       * probe reads cmux's own record and never touches the socket, so this works even when the
-       * launch below would not (Moon Base started outside cmux). A probe that throws, times out
-       * or answers with anything but `{ open: true }` is read as "not open" here too — the same
-       * rule the probe itself follows — so it can never be the reason an ordinary resume fails.
+       * A session that is already running is not opened a second time: two `--resume`/`resume`
+       * processes racing the one transcript file is worse than a click that does nothing. Two
+       * checks are asked together. cmux's own record never touches the socket, so it works even
+       * when the launch below would not (Moon Base started outside cmux), but it is filled by
+       * cmux's Claude Code integration and is empty when that is off. The tool's own record of its
+       * live processes needs no hook, so it covers that case (Claude Code only). Either one saying
+       * running holds the launch back, and cmux's answer is the one reported when both do. A check
+       * that throws, times out or answers with anything but exactly `true` is read as "not running"
+       * — the same rule each follows itself — so neither can be the reason an ordinary resume fails.
        */
       if (launcher.id === 'cmux' && target.resumeId && CMUX_AGENT[target.harness]) {
-        const probe = await Promise.resolve()
-          .then(() => probeSessionOpen(CMUX_AGENT[target.harness], target.resumeId))
-          .catch(() => null)
-        if (probe && probe.open === true) {
+        const [viaCmux, viaTool] = await Promise.all([
+          Promise.resolve()
+            .then(() => probeSessionOpen(CMUX_AGENT[target.harness], target.resumeId))
+            .catch(() => null),
+          Promise.resolve()
+            .then(() => probeSessionRunning(target.harness, target.resumeId))
+            .catch(() => false),
+        ])
+        if (viaCmux && viaCmux.open === true) {
           await tryForeground(launcher.id)
           return send(res, 200, { ok: true, already: true })
+        }
+        if (viaTool === true) {
+          // Which terminal holds it is not known, so the page is told who answered rather than where.
+          await tryForeground(launcher.id)
+          return send(res, 200, { ok: true, already: true, via: 'claude' })
         }
       }
 
