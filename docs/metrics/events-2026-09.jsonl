@@ -10,3 +10,6 @@
 {"ts":"2026-09-27T01:54:00.656Z","event":"review","detail":"code-review","source":"aw-gate"}
 {"ts":"2026-09-27T01:54:00.722Z","event":"capture","detail":"decision,learning,session","source":"aw-gate"}
 {"ts":"2026-09-27T01:56:09.476Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
+{"ts":"2026-09-27T02:46:20.001Z","event":"review","detail":"code-review","source":"aw-gate"}
+{"ts":"2026-09-27T02:46:20.089Z","event":"capture","detail":"decision,learning,session","source":"aw-gate"}
+{"ts":"2026-09-27T02:46:44.815Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
