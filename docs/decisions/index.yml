@@ -72,3 +72,12 @@ decisions:
       - ui
       - settings
       - cmux
+  - path: docs/decisions/2026-09-26-resume-already-open-falls-back-to-claudes-own-marker.md
+    title: Resume's already-open check falls back to Claude's own marker when cmux's record is empty
+    date: 2026-09-26
+    status: active
+    tags:
+      - cmux
+      - terminal
+      - resume
+      - hooks

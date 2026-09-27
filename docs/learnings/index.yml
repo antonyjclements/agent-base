@@ -135,3 +135,12 @@ learnings:
       - flaky-tests
       - macos
       - moon-base
+  - path: docs/learnings/2026-09-26-cmux-records-depend-on-its-claude-code-integration.md
+    title: cmux's session records and event stream exist only while its Claude Code integration is on
+    scope: repo
+    status: tentative
+    tags:
+      - cmux
+      - hooks
+      - claude-code
+      - moon-base

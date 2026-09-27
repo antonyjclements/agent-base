@@ -38,7 +38,7 @@ async function withWorld(fn) {
 }
 
 /** Run the doctor against a fake world. */
-async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map(), asked } = {}) {
+async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map(), asked, cmuxSessions = async () => ({ answered: false, why: 'missing' }) } = {}) {
   const lines = []
   const code = await doctor([], {
     env: { MOON_BASE_HOME: world.moonHome, MOON_BASE_CMUX_DIR: world.cmux.dir, ...env },
@@ -50,6 +50,7 @@ async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, b
     probe: async (p, o) => (asked?.push(o?.host), ports[p] ?? { kind: 'other' }),
     build: { state: async () => build },
     markers: async () => markers,
+    cmuxSessions,
   })
   return { code, text: lines.join('\n'), lines }
 }
@@ -100,6 +101,64 @@ test('it looks for a running copy where start would, and never prints the addres
       assert.match(line(r.text, 'port'), /already running on port 5274/i, String(host))
       if (host) assert.ok(!r.text.includes(host), `${host}: an environment value is not printed`)
     }
+  })
+})
+
+test('the missing cmux stream is explained as its Claude Code integration being off, not as cmux being uninstalled', async () => {
+  await withWorld(async (w) => {
+    const row = line((await diagnose(w)).text, 'cmux stream')
+    assert.match(row, /not found/i)
+    assert.match(row, /claude code integration/i)
+    assert.match(row, /claude.s own busy marker/i, 'and says what status comes from instead')
+    assert.ok(!/installed/i.test(row), row)
+  })
+})
+
+const terminalMarkers = (n, cli = true) => new Map(Array.from({ length: n }, (_, i) => [`session-${i}`, { status: 'idle', at: NOW, cli }]))
+
+test('the resume check says what cmux knows, and what the fallback sees when it knows nothing', async () => {
+  await withWorld(async (w) => {
+    const cases = [
+      [{ answered: true, count: 3 }, terminalMarkers(2), [/cmux knows 3 Claude sessions/i, /claude.s own marker is checked too/i, /2 live terminal sessions/i]],
+      [{ answered: true, count: 1 }, terminalMarkers(0), [/cmux knows 1 Claude session\b/i, /0 live terminal sessions/i]],
+      [{ answered: true, count: 0 }, terminalMarkers(1), [/cmux answers but knows no claude sessions/i, /none is open in cmux, or its claude code integration is off/i, /falls back to claude.s own marker/i, /1 live terminal session\b/i]],
+      [{ answered: false, why: 'missing' }, terminalMarkers(1), [/cmux command was not found/i, /falls back to claude.s own marker/i, /1 live terminal session\b/i]],
+      [{ answered: false, why: 'failed' }, terminalMarkers(0), [/cmux did not answer/i, /falls back to claude.s own marker/i]],
+    ]
+    for (const [known, markers, expected] of cases) {
+      const row = line((await diagnose(w, { cmuxSessions: async () => known, markers })).text, 'resume check')
+      assert.ok(row, JSON.stringify(known))
+      for (const re of expected) assert.match(row, re, `${JSON.stringify(known)} -> ${row}`)
+    }
+  })
+})
+
+test('desktop-app sessions are not counted as terminal ones, in the markers row or the resume check', async () => {
+  await withWorld(async (w) => {
+    const markers = new Map([...terminalMarkers(2), ...new Map([['desk-1', { status: 'idle', at: NOW, cli: false }], ['desk-2', { status: 'busy', at: NOW, cli: false }]])])
+    const r = await diagnose(w, { markers, cmuxSessions: async () => ({ answered: true, count: 0 }) })
+    assert.match(line(r.text, 'claude'), /4 live sessions.*2 in a terminal/i)
+    assert.match(line(r.text, 'resume check'), /2 live terminal sessions/i)
+  })
+})
+
+test('a cmux check that throws is read as not answering, and the doctor still finishes', async () => {
+  await withWorld(async (w) => {
+    const r = await diagnose(w, {
+      cmuxSessions: async () => {
+        throw new Error('boom')
+      },
+    })
+    assert.equal(r.code, 0)
+    assert.match(line(r.text, 'resume check'), /cmux did not answer/i)
+  })
+})
+
+test('the resume check prints counts only: no session id, folder or message', async () => {
+  await withWorld(async (w) => {
+    const markers = new Map([[SENTINEL, { status: 'busy', at: NOW, cli: true, cwd: `/${SENTINEL}` }]])
+    const r = await diagnose(w, { markers, cmuxSessions: async () => ({ answered: true, count: 1, ids: [SENTINEL], cwd: SENTINEL }) })
+    assert.ok(!r.text.includes(SENTINEL), 'nothing the sessions said is printed')
   })
 })
 
@@ -179,6 +238,7 @@ test('a switched-off cmux stream is never handed to the live status, so it is ne
         probe: async () => ({ kind: 'free' }),
         build: { state: async () => ({ state: 'fresh' }) },
         markers: async () => new Map(),
+        cmuxSessions: async () => ({ answered: false, why: 'missing' }),
         makeLive: (options) => {
           seen.push(options)
           return new LiveStatus(options)
@@ -260,8 +320,9 @@ test('with no markers handed to it, it reads the real ones: this process is a li
       out: (l) => lines.push(l),
       probe: async (p) => (p === 5274 ? { kind: 'free' } : { kind: 'other' }),
       build: { state: async () => ({ state: 'fresh' }) },
+      cmuxSessions: async () => ({ answered: false, why: 'missing' }),
     })
-    assert.match(line(lines.join('\n'), 'claude'), /1 live session\b.*1 busy/i)
+    assert.match(line(lines.join('\n'), 'claude'), /1 live session\b.*1 busy.*1 in a terminal/i)
   })
 })
 

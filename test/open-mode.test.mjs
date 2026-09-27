@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { OPEN_MODES, resolveOpenMode } from '../src/game/open-mode.js'
+import { OPEN_MODES, launchNote, resolveOpenMode } from '../src/game/open-mode.js'
 import { Settings } from '../src/core/settings.js'
 
 const CMUX = { id: 'cmux', label: 'cmux' }
@@ -59,4 +59,16 @@ test('a choice already stored is kept, and an install that never chose is automa
   } finally {
     delete globalThis.localStorage
   }
+})
+
+test('what the page tells the person after a terminal launch says which check answered', () => {
+  assert.equal(launchNote({ ok: true }, 'cmux'), 'Opened in cmux')
+  assert.equal(launchNote({ ok: true, already: true }, 'cmux'), 'Already open in cmux')
+  assert.equal(
+    launchNote({ ok: true, already: true, via: 'claude' }, 'cmux'),
+    'Already running: Claude Code has that session open',
+    'the marker cannot say which terminal holds it, so it does not name one'
+  )
+  assert.equal(launchNote({ ok: true, already: true, via: 'something-new' }, 'cmux'), 'Already open in cmux', 'an unknown source reads as the usual answer')
+  assert.equal(launchNote({ ok: true, via: 'claude' }, 'cmux'), 'Opened in cmux', 'via only means something when it was already open')
 })

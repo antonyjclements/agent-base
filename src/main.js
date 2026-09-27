@@ -25,7 +25,7 @@ import {
   terminalLaunch,
   terminalLauncher,
 } from './game/api.js'
-import { resolveOpenMode } from './game/open-mode.js'
+import { launchNote, resolveOpenMode } from './game/open-mode.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
 
@@ -1236,7 +1236,7 @@ const openMode = () => resolveOpenMode(settings.get('openWith'), terminal)
 async function viaTerminal(mode, target) {
   if (mode === 'terminal') {
     const result = await terminalLaunch(target)
-    return result.already ? `Already open in ${terminal.label}` : `Opened in ${terminal.label}`
+    return launchNote(result, terminal.label)
   }
   const { command } = await terminalCommand(target)
   if (!(await copyText(command))) throw new Error(`Could not reach the clipboard. The command is: ${command}`)

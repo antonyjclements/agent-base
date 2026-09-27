@@ -21,6 +21,7 @@ export default {
   newSession,                    // (dir) => { ok: true, url } | { ok: false, error }
   terminalOpen,                  // optional: (ref) => { ok: true, argv, cwd } | { ok: false, error }
   terminalNew,                   // optional: (dir) => { ok: true, argv, cwd } | { ok: false, error }
+  sessionRunning,                // optional: (sessionId) => Promise<boolean>, from the tool's own records, no hooks
 }
 ```
 
@@ -67,6 +68,15 @@ as a plain string (both built-in adapters do this — `cliSessionId` for Claude 
 Codex). It is how the cmux launcher asks cmux whether that session is already open before starting a
 second one on it, without parsing a command line back apart. Leave it out where there is no single id
 to resume (`terminalNew`, or a harness whose command does not target one session).
+
+### `sessionRunning(sessionId)` (optional)
+
+Whether a process of this tool is running that exact session right now, read from the tool's own records and
+never from a hook: `true` or `false`. The launch route asks it, next to cmux's own record, before it starts a
+second process on a session that is already running (two of them race the one transcript file). Answer `true`
+only on evidence. A missing method, an error and anything but `true` all read as "not running", so it can only
+hold a resume back, never break one. Claude Code answers from its live-session markers (a live process whose
+marker does not say it belongs to the desktop app); Codex has no such record and leaves it out.
 
 ### There is no `setArchived`, and that is deliberate
 

@@ -107,6 +107,8 @@ const CLI_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude')
 const CLI_PROJECTS = path.join(CLI_HOME, 'projects')
 /** One file per live CLI process: {pid, sessionId, cwd, ...}. Stale files outlive their pid. */
 const CLI_LIVE = path.join(CLI_HOME, 'sessions')
+/** What a marker's `entrypoint` says when the desktop app started the process. A terminal's says `cli`. */
+const DESKTOP_ENTRYPOINT = 'claude-desktop'
 
 const HEAD_BYTES = 192 * 1024
 
@@ -291,10 +293,18 @@ async function transcriptMeta(entry) {
 /**
  * What a live session's own marker says it is doing: `busy` (mid-turn) or `idle`, and when that last
  * changed. Anything else, or no time, reads as nothing rather than as a guess.
+ *
+ * `cli` is whether the process is one a terminal resume would race: anything but the desktop app. The
+ * desktop app keeps idle sessions warm for days, so its markers say a thread has a process, not that anyone
+ * is running it, and they must not stop a terminal resume (plan D26). A marker that names no host counts.
  */
 function markerOf(record) {
   const stamp = [record.statusUpdatedAt, record.updatedAt].find((n) => Number.isFinite(n))
-  return { status: record.status === 'busy' || record.status === 'idle' ? record.status : '', at: stamp ?? 0 }
+  return {
+    status: record.status === 'busy' || record.status === 'idle' ? record.status : '',
+    at: stamp ?? 0,
+    cli: record.entrypoint !== DESKTOP_ENTRYPOINT,
+  }
 }
 
 /** The two fields a thread carries from its marker; empty when there is no live process behind it. */
@@ -324,7 +334,10 @@ async function scanLiveSessions() {
       // marker speaks for it, and busy wins a tie, so the answer does not depend on the order of the files.
       const marker = markerOf(record)
       const known = live.get(record.sessionId)
-      if (!known || marker.at > known.at || (marker.at === known.at && marker.status === 'busy')) live.set(record.sessionId, marker)
+      const speaks = !known || marker.at > known.at || (marker.at === known.at && marker.status === 'busy') ? marker : known
+      // Which marker speaks for the status is one question; whether any of them is a terminal process is
+      // another, so a newer desktop-app marker cannot hide an older terminal one.
+      live.set(record.sessionId, { ...speaks, cli: marker.cli || known?.cli === true })
     } catch {
       /* process is gone */
     }
@@ -695,8 +708,20 @@ async function terminalNew(dir) {
   return { ok: true, argv: ['claude'], cwd: dir }
 }
 
-/** For the doctor: the live sessions and what each one's marker says (`{ status, at }` by session id). */
+/** For the doctor: the live sessions and what each one's marker says (`{ status, at, cli }` by session id). */
 export const liveSessionMarkers = scanLiveSessions
+
+/**
+ * Whether a terminal process is running this session right now, from Claude's own marker: hook-free, so it
+ * holds when cmux's integration is off and cmux's record is empty (plan D25). Any failure reads as no.
+ */
+async function sessionRunning(sessionId) {
+  try {
+    return (await scanLiveSessions()).get(sessionId)?.cli === true
+  } catch {
+    return false
+  }
+}
 
 export default {
   id: 'claude-code',
@@ -708,5 +733,6 @@ export default {
   newSession,
   terminalOpen,
   terminalNew,
+  sessionRunning,
   paths: { DESKTOP_SESSIONS, CLI_PROJECTS, CLI_LIVE },
 }
