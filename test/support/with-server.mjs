@@ -17,6 +17,8 @@ import http from 'node:http'
 export async function withServer(run) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'moon-base-test-'))
   process.env.MOON_BASE_DATA = dir
+  // No test reads a real `~/.cmuxterm`: unless a test points cmux somewhere itself, it is a folder that is not there.
+  process.env.MOON_BASE_CMUX_DIR ??= path.join(dir, 'no-cmux')
   // Imported per-server so DATA_DIR is read fresh; the query string defeats the module cache.
   const api = await import(`../../server/api.mjs?${dir}`)
   const { apiMiddleware } = api

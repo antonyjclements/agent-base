@@ -91,3 +91,47 @@ learnings:
       - codex
       - claude-code
       - moon-base
+  - path: docs/learnings/2026-09-26-node-base64-decoder-skips-junk.md
+    title: Node's base64 decoder silently skips characters that are not base64
+    scope: repo
+    status: tentative
+    tags:
+      - security
+      - parsing
+      - node
+      - moon-base
+  - path: docs/learnings/2026-09-26-a-test-that-hangs-is-not-a-test-that-fails.md
+    title: A test that waits on a server must time out itself, or a broken server hangs the run
+    scope: repo
+    status: tentative
+    tags:
+      - testing
+      - process
+      - mutation-testing
+  - path: docs/learnings/2026-09-26-check-added-ui-text-in-a-browser-not-only-in-a-test.md
+    title: Text added to fixed-size UI needs a real browser check, because tests of the text cannot see overlap
+    scope: repo
+    status: tentative
+    tags:
+      - ui
+      - testing
+      - visual-checks
+      - moon-base
+  - path: docs/learnings/2026-09-26-async-request-handlers-must-not-throw.md
+    title: An async HTTP handler must not throw, because one bad request then ends the process
+    scope: repo
+    status: tentative
+    tags:
+      - security
+      - server
+      - node
+      - moon-base
+  - path: docs/learnings/2026-09-26-tests-that-scan-ports-find-each-others-servers.md
+    title: A test that searches a port range can find, and reuse, another test file's server
+    scope: repo
+    status: tentative
+    tags:
+      - testing
+      - flaky-tests
+      - macos
+      - moon-base

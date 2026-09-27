@@ -6,6 +6,7 @@ import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 import { PLOT_PALETTE, hashString } from '../world/plots.js'
 import { LOOKS, pickLook } from '../agents/looks.js'
 import { resolveOpenMode } from '../game/open-mode.js'
+import { liveChip } from '../game/live-chip.js'
 
 /**
  * The whole HUD, in plain DOM.
@@ -304,11 +305,12 @@ export class Hud {
         'Open sessions with',
         'openWith',
         [
+          ['auto', 'Automatic'],
           ['app', 'Desktop app'],
           ['copy', 'Copy terminal command'],
           ['terminal', 'Terminal'],
         ],
-        'Where Open and New thread go. “Copy” puts the command on the clipboard, for any terminal. “Terminal” opens it in the terminal Moon Base was started from, and needs MOON_BASE_TERMINAL=cmux when you start it.'
+        'Where Open and New thread go. “Automatic” is the terminal when Moon Base was started inside cmux (moonbase1 does that for you) and the desktop app otherwise. “Copy” puts the command on the clipboard, for any terminal. “Terminal” needs MOON_BASE_TERMINAL=cmux when you start it.'
       )
     )
     body.appendChild(sessions)
@@ -1010,12 +1012,11 @@ export class Hud {
    */
   setLive(live) {
     const chip = this.$('.live-chip')
-    chip.hidden = !live?.active
-    if (chip.hidden) return
-    const now = Date.now()
-    const dot = (at) => (at && now - at < 10 * 60 * 1000 ? '●' : '○')
-    chip.textContent = `Live · Claude Code ${dot(live.tools?.['claude-code'])} Codex ${dot(live.tools?.codex)}`
-    chip.title = 'Live status from hooks. ● reported in the last ten minutes; ○ is being inferred from that tool’s files.'
+    const shown = liveChip(live, Date.now())
+    chip.hidden = !shown
+    if (!shown) return
+    chip.textContent = shown.text
+    chip.title = shown.title
   }
 
   removeBoot() {
@@ -1142,12 +1143,12 @@ const TEMPLATE = `
   <div class="grab"></div>
   <header class="brandbar">
     <div class="brand"><i class="dot"></i>Moon Base</div>
-    <span class="live-chip" hidden></span>
     <button class="btn icon ghost" id="btn-shot" title="Screenshot (P)">${ICON.camera}</button>
     <button class="btn icon ghost" id="btn-help" title="Help (?)">${ICON.help}</button>
     <button class="btn icon ghost" id="btn-hide" title="Hide all UI (H)">${ICON.eye}</button>
     <button class="btn icon ghost" id="btn-settings" title="Settings (S)" aria-pressed="false">${ICON.settings}</button>
   </header>
+  <span class="live-chip" hidden></span>
 
   <div class="stats"></div>
 

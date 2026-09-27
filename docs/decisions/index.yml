@@ -39,6 +39,15 @@ decisions:
       - hooks
       - architecture
       - security
+  - path: docs/decisions/2026-09-26-live-status-from-cmux-event-stream-metadata-only.md
+    title: Live status also comes from cmux's own event stream, read automatically and metadata only
+    date: 2026-09-26
+    status: active
+    tags:
+      - security
+      - privacy
+      - live-status
+      - cmux
   - path: docs/decisions/2026-09-26-original-bot-from-cc0-art-rover.md
     title: The bot is an original design on CC0 art, and the shipped look is Rover
     date: 2026-09-26
@@ -47,3 +56,19 @@ decisions:
       - art
       - identity
       - licensing
+  - path: docs/decisions/2026-09-26-moonbase1-starts-in-process-and-finds-copies-by-asking.md
+    title: moonbase1 is one command that starts the server in-process and finds a running copy by asking it
+    date: 2026-09-26
+    status: active
+    tags:
+      - cli
+      - server
+      - cmux
+  - path: docs/decisions/2026-09-26-open-sessions-with-defaults-to-automatic.md
+    title: The Open sessions with setting defaults to Automatic
+    date: 2026-09-26
+    status: active
+    tags:
+      - ui
+      - settings
+      - cmux

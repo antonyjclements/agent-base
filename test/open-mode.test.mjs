@@ -10,8 +10,15 @@ import { Settings } from '../src/core/settings.js'
 
 const CMUX = { id: 'cmux', label: 'cmux' }
 
-test('the three ways to open are the desktop app, a copied command and a terminal', () => {
-  assert.deepEqual([...OPEN_MODES], ['app', 'copy', 'terminal'])
+test('the ways to open are automatic, the desktop app, a copied command and a terminal', () => {
+  assert.deepEqual([...OPEN_MODES], ['auto', 'app', 'copy', 'terminal'])
+})
+
+test('automatic is the terminal where the server has a launcher, and the desktop app where it does not', () => {
+  assert.equal(resolveOpenMode('auto', CMUX), 'terminal')
+  for (const launcher of [null, undefined, false, {}, { id: '' }]) {
+    assert.equal(resolveOpenMode('auto', launcher), 'app', JSON.stringify(launcher))
+  }
 })
 
 test('what is chosen is what happens, when it can', () => {
@@ -34,6 +41,22 @@ test('anything else is the default, so a bad or old setting never blocks Open', 
   }
 })
 
-test('a fresh install opens in the desktop app, as before', () => {
-  assert.equal(new Settings().get('openWith'), 'app')
+test('a fresh install is automatic, so the first click inside cmux already works', () => {
+  assert.equal(new Settings().get('openWith'), 'auto')
+})
+
+test('a choice already stored is kept, and an install that never chose is automatic', () => {
+  const store = (value) => {
+    globalThis.localStorage = { getItem: () => JSON.stringify(value), setItem() {} }
+  }
+  try {
+    for (const chosen of ['app', 'copy', 'terminal']) {
+      store({ openWith: chosen })
+      assert.equal(new Settings().get('openWith'), chosen)
+    }
+    store({ preset: 'high' }) // stored before this setting existed
+    assert.equal(new Settings().get('openWith'), 'auto')
+  } finally {
+    delete globalThis.localStorage
+  }
 })

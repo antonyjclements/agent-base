@@ -1570,8 +1570,15 @@ kbd {
 }
 .moon-base-canvas { cursor: grab; }
 
+/*
+ * Its own line under the header. Beside the title there is no room for it: the panel is a fixed 320px, the
+ * title needs about 90 and the four buttons about 130, so a chip of any length pushed the title to nothing
+ * and drew over it. Hidden, it takes no space at all.
+ */
 .live-chip {
-  margin-left: 8px;
+  align-self: flex-start;
+  max-width: calc(100% - 30px);
+  margin: 8px 15px 0;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;

@@ -7,6 +7,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -16,7 +17,7 @@ import codex from '../server/harnesses/codex.mjs'
 import claudeCode from '../server/harnesses/claude-code.mjs'
 import { readTail } from '../server/lib/fsutil.mjs'
 import { schemeOf } from '../server/lib/xdg.mjs'
-import { SESSION_ID, line, fakeCodex, scanWith, fakeClaude, claudeWith, typed, listing } from './support/fixtures.mjs'
+import { SESSION_ID, line, fakeCodex, scanWith, fakeClaude, claudeWith, typed, listing, writeMarker } from './support/fixtures.mjs'
 
 
 // ── the contract ──────────────────────────────────────────────────────────────
@@ -327,4 +328,83 @@ test('a record the app still holds outranks a leftover deletion marker', async (
   assert.equal(t.title, 'Back again')
   assert.equal(t.archived, false, 'a record that exists is the newer truth')
   await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+// ── Claude's own busy/idle marker (AC14) ──────────────────────────────────────
+
+/** A pid that is certainly gone: a child that ran and exited. */
+const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid
+
+async function markerThread(marker) {
+  const fx = await fakeClaude({ transcript: [typed('tidy the ledger')] })
+  if (marker) await writeMarker(fx.configDir, marker)
+  const h = await claudeWith(fx)
+  const [thread] = await h.scanThreads()
+  await fsp.rm(fx.root, { recursive: true, force: true })
+  return thread
+}
+
+test('a live session carries the status Claude wrote for it, and when', async () => {
+  const at = Date.now() - 4000
+  assert.deepEqual(
+    (({ markerStatus, markerAt }) => ({ markerStatus, markerAt }))(await markerThread({ status: 'busy', at })),
+    { markerStatus: 'busy', markerAt: at }
+  )
+  assert.deepEqual(
+    (({ markerStatus, markerAt }) => ({ markerStatus, markerAt }))(await markerThread({ status: 'idle', at })),
+    { markerStatus: 'idle', markerAt: at }
+  )
+})
+
+test('a marker that says nothing usable reads as no status, but the process is still alive', async () => {
+  for (const extra of [{ status: undefined }, { status: 'waiting' }, { status: 5 }, { status: 'BUSY' }]) {
+    const thread = await markerThread({ status: extra.status, extra })
+    assert.equal(thread.markerStatus, '', JSON.stringify(extra))
+  }
+  const noTime = await markerThread({ status: 'busy', extra: { statusUpdatedAt: undefined, updatedAt: undefined } })
+  assert.equal(noTime.markerStatus, 'busy')
+  assert.equal(noTime.markerAt, 0)
+})
+
+test('a marker whose process is gone, or no marker at all, gives no status', async () => {
+  const gone = await markerThread({ pid: deadPid(), status: 'busy' })
+  assert.equal(gone.markerStatus, '')
+  assert.equal(gone.markerAt, 0)
+  const none = await markerThread(null)
+  assert.equal(none.markerStatus, '')
+  assert.equal(none.markerAt, 0)
+})
+
+test('a marker file that is not JSON is skipped, and the scan carries on', async () => {
+  const fx = await fakeClaude({ transcript: [typed('tidy the ledger')] })
+  await fsp.mkdir(path.join(fx.configDir, 'sessions'), { recursive: true })
+  await fsp.writeFile(path.join(fx.configDir, 'sessions', '1.json'), '{ not json')
+  await writeMarker(fx.configDir, { status: 'busy' })
+  const h = await claudeWith(fx)
+  const [thread] = await h.scanThreads()
+  assert.equal(thread.markerStatus, 'busy')
+  await fsp.rm(fx.root, { recursive: true, force: true })
+})
+
+test('two live processes for one session: the newer marker wins, and a tie goes to busy, whatever order the files are in', async () => {
+  const SID = '11111111-2222-4333-8444-555555555555'
+  const alive = [process.pid, process.ppid] // both are running, which is all a marker needs
+  const cases = [
+    // [what each of the two markers says, the answer]
+    [[{ status: 'idle', at: 2000 }, { status: 'busy', at: 1000 }], { markerStatus: 'idle', markerAt: 2000 }],
+    [[{ status: 'busy', at: 3000 }, { status: 'idle', at: 1000 }], { markerStatus: 'busy', markerAt: 3000 }],
+    [[{ status: 'idle', at: 2000 }, { status: 'busy', at: 2000 }], { markerStatus: 'busy', markerAt: 2000 }],
+    [[{ status: '', at: 0 }, { status: 'busy', at: 500 }], { markerStatus: 'busy', markerAt: 500 }],
+  ]
+  for (const [markers, expected] of cases) {
+    for (const flip of [false, true]) {
+      const fx = await fakeClaude({ transcript: [{ ...typed('x'), cwd: '/tmp/demo' }] })
+      const ordered = flip ? [...markers].reverse() : markers
+      for (const [i, m] of ordered.entries()) await writeMarker(fx.configDir, { pid: alive[i], sessionId: SESSION_ID, status: m.status, at: m.at })
+      const h = await claudeWith(fx)
+      const [thread] = await h.scanThreads()
+      assert.deepEqual({ markerStatus: thread.markerStatus, markerAt: thread.markerAt }, expected, `${JSON.stringify(markers)} flip=${flip}`)
+      await fsp.rm(fx.root, { recursive: true, force: true })
+    }
+  }
 })

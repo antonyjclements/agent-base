@@ -5,6 +5,9 @@
   "type": "module",
   "description": "A local 3D colony where every Claude Code and Codex session on your machine is a bot on a lunar base.",
   "license": "MIT",
+  "bin": {
+    "moonbase1": "bin/moon-base.mjs"
+  },
   "keywords": [
     "claude-code",
     "codex",

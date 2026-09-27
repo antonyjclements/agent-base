@@ -12,8 +12,9 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { SESSION_ID, line, fakeCodex, listing } from './support/fixtures.mjs'
+import { SESSION_ID, SENTINEL, cmuxRow, line, fakeCodex, listing } from './support/fixtures.mjs'
 import { withServer } from './support/with-server.mjs'
+import { resetLiveStatus } from '../server/hooks/live.mjs'
 
 const OTHER = '01a0dbe2-aaaa-7c61-999c-16e6243ba432'
 
@@ -27,12 +28,17 @@ const eventsDir = path.join(moonHome, 'events')
 const eventsFile = path.join(eventsDir, 'events.jsonl')
 await fsp.mkdir(eventsDir, { recursive: true, mode: 0o700 })
 await fsp.chmod(eventsDir, 0o700)
+const cmuxDir = path.join(scratch, 'cmuxterm')
+const cmuxFile = path.join(cmuxDir, 'workstream.jsonl')
+await fsp.mkdir(cmuxDir, { recursive: true, mode: 0o700 })
+await fsp.chmod(cmuxDir, 0o700)
 
 process.env.HOME = path.join(scratch, 'home')
 process.env.CLAUDE_CONFIG_DIR = path.join(scratch, 'claude-config') // no Claude Code on this machine
 process.env.MOON_BASE_CLAUDE_DESKTOP = path.join(scratch, 'claude-desktop')
 process.env.CODEX_HOME = codexHome
 process.env.MOON_BASE_HOME = moonHome
+process.env.MOON_BASE_CMUX_DIR = cmuxDir
 
 const emit = (o) =>
   fsp.appendFile(eventsFile, JSON.stringify({ v: 1, ts: Date.now(), tool: 'codex', sessionId: SESSION_ID, ...o }) + '\n', { mode: 0o600 })
@@ -91,6 +97,82 @@ test('reading events writes nothing: the tool’s files are unchanged and no fil
   })
   assert.deepEqual(await listing(codexHome), before)
   assert.deepEqual(await fsp.readdir(eventsDir), ['events.jsonl'])
+})
+
+// ── cmux's stream, through the same API (AC14) ────────────────────────────────
+
+const emitCmux = async (kind, extra = {}) => {
+  await fsp.appendFile(cmuxFile, cmuxRow({ kind, source: 'codex', sessionId: SESSION_ID, at: Date.now() + 1000, ...extra }) + '\n')
+  await fsp.chmod(cmuxFile, 0o644)
+}
+
+test('a cmux row shows on the next request, with no hook installed, and the page is told cmux is reporting', async () => {
+  resetLiveStatus()
+  await withServer(async ({ call }) => {
+    await emitCmux('userPrompt')
+    const body = await threads(call)
+    assert.equal(codexThread(body).running, true)
+    assert.equal(codexThread(body).liveSource, 'cmux')
+    assert.equal(body.live.active, true)
+    const cmux = body.live.sources.find((s) => s.id === 'cmux')
+    assert.equal(cmux.present, true)
+    assert.ok(cmux.lastAt > 0)
+  })
+})
+
+test('a question in cmux waits on you, and the answer that follows turns it back to running', async () => {
+  resetLiveStatus()
+  await withServer(async ({ call }) => {
+    await emitCmux('question', { at: Date.now() + 2000 })
+    let t = codexThread(await threads(call))
+    assert.equal(t.running, false)
+    assert.equal(t.unread, true)
+    await emitCmux('toolResult', { at: Date.now() + 4000 })
+    t = codexThread(await threads(call))
+    assert.equal(t.running, true)
+  })
+})
+
+test('with MOON_BASE_CMUX_STATUS=off, cmux is not read and not mentioned', async () => {
+  const before = process.env.MOON_BASE_CMUX_STATUS
+  process.env.MOON_BASE_CMUX_STATUS = 'off'
+  resetLiveStatus()
+  try {
+    await withServer(async ({ call }) => {
+      await emitCmux('userPrompt', { at: Date.now() + 8000 })
+      const body = await threads(call)
+      assert.notEqual(codexThread(body).liveSource, 'cmux')
+      assert.equal(body.live.sources.some((s) => s.id === 'cmux'), false)
+    })
+  } finally {
+    if (before === undefined) delete process.env.MOON_BASE_CMUX_STATUS
+    else process.env.MOON_BASE_CMUX_STATUS = before
+    resetLiveStatus()
+  }
+})
+
+test('nothing a cmux row says leaves the server: no endpoint returns any of its content', async () => {
+  resetLiveStatus()
+  await withServer(async ({ call }) => {
+    await emitCmux('userPrompt', { at: Date.now() + 10000 })
+    await emitCmux('permissionRequest', { at: Date.now() + 11000 })
+    await threads(call)
+    for (const p of ['/api/threads', '/api/harnesses', '/api/state', '/api/terminal-launcher']) {
+      const text = await (await call(p)).text()
+      assert.ok(!text.includes(SENTINEL), `${p} returned content from a cmux row`)
+    }
+  })
+})
+
+test('reading cmux’s stream writes nothing: its folder is exactly as cmux left it', async () => {
+  resetLiveStatus()
+  const before = await listing(cmuxDir)
+  await withServer(async ({ call }) => {
+    await threads(call)
+    await threads(call)
+  })
+  assert.deepEqual(await listing(cmuxDir), before)
+  assert.deepEqual(await fsp.readdir(cmuxDir), ['workstream.jsonl'])
 })
 
 test.after(async () => {

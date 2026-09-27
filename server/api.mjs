@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +23,15 @@ const DATA_DIR = process.env.MOON_BASE_DATA || path.join(here, '..', 'data')
 const STATE_FILE = path.join(DATA_DIR, 'colony.json')
 
 const STATE_VERSION = 2
+
+/** This copy's version, for `/api/identity`. Empty rather than an error if the file cannot be read. */
+const VERSION = (() => {
+  try {
+    return String(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version || '')
+  } catch {
+    return ''
+  }
+})()
 
 /**
  * v1 keyed everything on a bare session id, because Claude Code was the only harness and its
@@ -470,7 +480,12 @@ function readJsonBody(req, limit = 4 * 1024 * 1024) {
 
 /** Connect-style middleware: handles /api/*, passes everything else through. */
 export async function apiMiddleware(req, res, next) {
-  const url = new URL(req.url, 'http://localhost')
+  let url
+  try {
+    url = new URL(req.url, 'http://localhost')
+  } catch {
+    return send(res, 400, { error: 'That is not a valid address' }) // not an exception: this is async, so a throw would be an unhandled rejection
+  }
   if (!url.pathname.startsWith('/api/')) return next ? next() : send(res, 404, { error: 'Not found' })
 
   if (!isLocalRequest(req)) {
@@ -484,6 +499,15 @@ export async function apiMiddleware(req, res, next) {
       // appearing healthy in the list while quietly contributing nothing.
       const warnings = (await harnessStatus()).filter((h) => h.detected && h.error).map((h) => h.error)
       return send(res, 200, { threads, scannedAt: Date.now(), warnings, live: liveSummary() })
+    }
+
+    /**
+     * Who is on this port. `moonbase1` asks it of every port in its range to find a copy that is already
+     * running, so it says what it is and whether its terminal launcher is on, and nothing about the
+     * machine: no path, no environment.
+     */
+    if (url.pathname === '/api/identity' && req.method === 'GET') {
+      return send(res, 200, { app: 'moon-base', version: VERSION, pid: process.pid, launcher: launcherFromEnv() })
     }
 
     if (url.pathname === '/api/harnesses' && req.method === 'GET') {
