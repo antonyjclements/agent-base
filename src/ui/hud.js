@@ -309,13 +309,15 @@ export class Hud {
           ['app', 'Desktop app'],
           ['copy', 'Copy terminal command'],
           ['terminal', 'Terminal'],
+          ['foreground', 'Bring cmux to the front'],
         ],
-        'Where Open and New thread go. “Automatic” is the terminal when Moon Base was started inside cmux (moonbase1 does that for you) and the desktop app otherwise. “Copy” puts the command on the clipboard, for any terminal. “Terminal” needs MOON_BASE_TERMINAL=cmux when you start it.'
+        'Where Open and New thread go. “Automatic” is the terminal when Moon Base was started inside cmux (moonbase1 does that for you) and the desktop app otherwise. “Copy” puts the command on the clipboard, for any terminal. “Terminal” starts or resumes the session in cmux, and “Bring cmux to the front” only raises cmux, for sessions already running there. Both need MOON_BASE_TERMINAL=cmux when you start it.'
       )
     )
     body.appendChild(sessions)
     // Told once the server has answered: until then, and without a launcher, this reads as not enabled.
     this._terminalOption = sessions.querySelector('option[value="terminal"]')
+    this._foregroundOption = sessions.querySelector('option[value="foreground"]')
     this.setTerminalLauncher(null)
 
     // Sound.
@@ -495,12 +497,17 @@ export class Hud {
     if (this._terminalOption) {
       this._terminalOption.textContent = launcher ? `Terminal (${launcher.label})` : 'Terminal (not enabled: copies instead)'
     }
+    if (this._foregroundOption) {
+      // As short as Terminal's own label: this select is as wide as its longest option, and a longer one pushed
+      // the row out of the panel. The fallback to copying is in the hint under the setting instead.
+      this._foregroundOption.textContent = launcher ? `Bring ${launcher.label} to the front` : 'Bring cmux to the front (not enabled)'
+    }
     this._paintOpenHints()
   }
 
   /**
    * What Open and the new-thread buttons will do under the current setting, in their labels and
-   * tooltips. The mode is `app`, `copy` or `terminal`, exactly as `resolveOpenMode` says, so a stored
+   * tooltips. The mode is `app`, `copy`, `terminal` or `foreground`, exactly as `resolveOpenMode` says, so a stored
    * choice that cannot be honoured is shown as the copy it really is.
    */
   _paintOpenHints() {
@@ -513,16 +520,18 @@ export class Hud {
       app: `Start a new Claude Code thread in this folder (${pick})`,
       copy: `Copy the command that starts a new Claude Code thread in this folder (${pick})`,
       terminal: `Start a new Claude Code thread in this folder in ${where} (${pick})`,
+      foreground: `Bring ${where} to the front, to start a new Claude Code thread there (${pick})`,
     }[mode]
     codex.title = {
       app: 'Start a new Codex thread in this folder',
       copy: 'Copy the command that starts a new Codex thread in this folder',
       terminal: `Start a new Codex thread in this folder in ${where}`,
+      foreground: `Bring ${where} to the front, to start a new Codex thread there`,
     }[mode]
 
     const openBtn = this.$('#btn-open')
     // Short, because the card is narrow: the tooltip below says where it goes.
-    openBtn.querySelector('.lbl').textContent = { app: 'Open', copy: 'Copy', terminal: 'Resume' }[mode]
+    openBtn.querySelector('.lbl').textContent = { app: 'Open', copy: 'Copy', terminal: 'Resume', foreground: 'Show' }[mode]
     const thread = this.selected?.thread
     if (!thread) return
     openBtn.title =
@@ -532,9 +541,11 @@ export class Hud {
           ? 'Copy the terminal command that resumes this thread (Enter)'
           : mode === 'terminal'
             ? `Resume this thread in ${where} (Enter)`
-            : thread.opensAsNewSession
-              ? 'This thread only exists in the terminal, so opening it imports it as a new desktop session'
-              : 'Open this thread in the tool it came from (Enter)'
+            : mode === 'foreground'
+              ? `Bring ${where} to the front. It does not open this thread (Enter)`
+              : thread.opensAsNewSession
+                ? 'This thread only exists in the terminal, so opening it imports it as a new desktop session'
+                : 'Open this thread in the tool it came from (Enter)'
   }
 
   syncSettings() {

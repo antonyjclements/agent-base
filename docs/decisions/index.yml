@@ -81,3 +81,12 @@ decisions:
       - terminal
       - resume
       - hooks
+  - path: docs/decisions/2026-09-26-open-mode-that-only-brings-cmux-to-the-front.md
+    title: A way to open that only brings cmux to the front
+    date: 2026-09-26
+    status: active
+    tags:
+      - terminal
+      - cmux
+      - security
+      - settings

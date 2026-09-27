@@ -22,10 +22,11 @@ import {
   openThread,
   newSession,
   terminalCommand,
+  terminalForeground,
   terminalLaunch,
   terminalLauncher,
 } from './game/api.js'
-import { launchNote, resolveOpenMode } from './game/open-mode.js'
+import { foregroundNote, launchNote, resolveOpenMode } from './game/open-mode.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
 
@@ -183,10 +184,12 @@ const actions = {
         await newSession(folder, harness)
         hud.toast(`New thread in ${name} — opening ${label}`)
       } else {
-        hud.toast(`${await viaTerminal(mode, { folder, harness })} (new ${label} thread in ${name})`)
+        const note = await viaTerminal(mode, { folder, harness })
+        // Bringing cmux forward starts nothing, so there is no thread to name.
+        hud.toast(mode === 'foreground' ? note : `${note} (new ${label} thread in ${name})`)
       }
       // It lands as an astronaut walking down the ramp, once it has a record to scan.
-      setTimeout(poll, 6000)
+      if (mode !== 'foreground') setTimeout(poll, 6000)
     } catch (err) {
       hud.toast(err.message || 'Could not start a thread there', 'err')
     }
@@ -1230,10 +1233,16 @@ const openMode = () => resolveOpenMode(settings.get('openWith'), terminal)
 /**
  * Open a thread, or start a session, through a terminal instead of a desktop app (AC13). A target is
  * `{ id }` or `{ folder, harness }`, and the server builds the command from its own scan, so this only
- * asks for it and then either copies it or has the launcher open it. Returns what to tell the person,
+ * asks for it and then either copies it or has the launcher open it. In `foreground` mode it only has
+ * cmux brought to the front and sends no target. Returns what to tell the person,
  * and throws with the server's own words when it could not.
  */
 async function viaTerminal(mode, target) {
+  if (mode === 'foreground') {
+    // Nothing to resume or start: the server only raises cmux, and the target is not even sent.
+    await terminalForeground()
+    return foregroundNote(terminal.label, target.harness ? harnessLabel(target.harness) : '')
+  }
   if (mode === 'terminal') {
     const result = await terminalLaunch(target)
     return launchNote(result, terminal.label)

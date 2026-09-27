@@ -4,10 +4,11 @@ scope: repo
 created: 2026-09-26
 trigger: correction
 status: tentative
-evidence-count: 1
+evidence-count: 2
 unconfirmed-runs: 0
 derived-from:
   - 2026-09-26-moon-base-fork-build
+  - 2026-09-26-bring-cmux-to-the-front-option
 tags:
   - ui
   - testing
@@ -30,7 +31,10 @@ The Live chip's text is unit-tested as a pure function, and every one of those t
 
 - Run the page and measure: `getBoundingClientRect()` on the neighbouring elements and an overlap test, plus a screenshot. It is a few lines in the browser tool.
 - Prefer giving a variable-length element its own line over squeezing it beside fixed ones, so the layout does not depend on how long the text gets.
+- A `<select>` is as wide as its longest option, so a new option can widen the whole control. Measure candidate labels against the old longest one in a hidden probe select before choosing (the width is then known, not guessed), and put explanation in the hint text instead of the label.
+- Before blaming the new text, remove it in the page and measure again: that is how to tell what it caused from what was already broken.
 
 ## Evidence
 
 - `src/ui/hud.js` and `src/ui/styles.css`: the chip moved from the header row to its own line under it. Measured after: the title 167px wide with no overlap, the chip on its own row.
+- Second occurrence, the "Bring cmux to the front" option: its first label made the settings select 361px wide in a 286px row, so it stuck out of the panel and the row collapsed. A label measured to 273px, the width of the old longest option, fixed that. Removing the option in the page also showed the row was already crushed when the launcher is off (label column 1px wide, row 685px tall) before this change; that was reported separately and not restyled inside the feature.

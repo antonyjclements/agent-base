@@ -114,8 +114,10 @@ export const newSession = (folder, harness) => post('/api/new-session', { folder
  *
  * `terminalLauncher` says whether the server was started with a launcher (`{ launcher: { id, label } }`
  * or `{ launcher: null }`), `terminalCommand` returns the line to paste, and `terminalLaunch` has the
- * launcher open it.
+ * launcher open it. `terminalForeground` only brings the launcher's terminal to the front and takes no
+ * target at all.
  */
 export const terminalLauncher = () => req('/api/terminal-launcher')
 export const terminalCommand = (target) => post('/api/terminal-command', target)
 export const terminalLaunch = (target) => post('/api/terminal-launch', target)
+export const terminalForeground = () => post('/api/terminal-foreground', {})

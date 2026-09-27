@@ -407,6 +407,139 @@ test('with cmux on, a new session opens the bare tool in the repo', async () => 
   )
 })
 
+// ── just bringing cmux forward: the “Bring cmux to the front” choice ──────────────────────────
+
+const FOREGROUND = '/api/terminal-foreground'
+
+/** Run `fn` as if the server were on `platform`, then put the real one back. */
+async function onPlatform(platform, fn) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: platform })
+  try {
+    return await fn()
+  } finally {
+    Object.defineProperty(process, 'platform', real)
+  }
+}
+
+test('bringing cmux forward runs exactly `open -a cmux`, and starts, resumes and asks about nothing', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call, foregrounded, launched, opened }) => {
+      const asked = []
+      api.setSessionProbe(async (...a) => (asked.push(a), { open: true }))
+      api.setRunningProbe(async (...a) => (asked.push(a), true))
+      const res = await post(call, FOREGROUND, {})
+      assert.equal(res.status, 200)
+      assert.deepEqual(await res.json(), { ok: true })
+      assert.deepEqual(foregrounded, [['open', '-a', 'cmux']])
+      assert.deepEqual([launched, opened, asked], [[], [], []], 'no workspace, no app link, and no already-running check')
+    })
+  )
+})
+
+test('bringing cmux forward reads nothing from the request: no id, folder, command, launcher or argument list', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, foregrounded, launched }) => {
+      const res = await post(call, FOREGROUND, {
+        id: CODEX_THREAD,
+        harness: 'claude-code',
+        command: 'touch /tmp/pwned',
+        argv: ['sh', '-c', 'touch /tmp/pwned'],
+        cwd: '/',
+        folder: base,
+        launcher: 'sh',
+        app: 'Terminal',
+        url: 'https://evil.example/',
+      })
+      assert.equal(res.status, 200)
+      assert.deepEqual(foregrounded, [['open', '-a', 'cmux']], 'the one fixed argument list, whatever was sent')
+      assert.deepEqual(launched, [])
+    })
+  )
+})
+
+test('bringing cmux forward rejects a malformed body like every other route, and runs nothing', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, foregrounded }) => {
+      const res = await call(FOREGROUND, { method: 'POST', body: '{ not json' })
+      assert.equal(res.status, 400)
+      assert.deepEqual(foregrounded, [])
+    })
+  )
+})
+
+test('bringing cmux forward is refused unless the environment turned the launcher on, and runs nothing', async () => {
+  for (const value of [undefined, '', 'sh -c evil', 'CMUX', 'terminal']) {
+    await withLauncher(value, () =>
+      withServer(async ({ call, foregrounded }) => {
+        const res = await post(call, FOREGROUND, {})
+        assert.equal(res.status, 400, JSON.stringify(value))
+        assert.match((await res.json()).error, /launcher is not enabled/i)
+        assert.deepEqual(foregrounded, [], JSON.stringify(value))
+      })
+    )
+  }
+})
+
+test('bringing cmux forward: a cross-origin or origin-less POST is refused before anything runs', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, port, foregrounded }) => {
+      const evil = await call(FOREGROUND, { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' })
+      assert.equal(evil.status, 403)
+      const bare = await fetch(`http://127.0.0.1:${port}${FOREGROUND}`, { method: 'POST', body: '{}' })
+      assert.equal(bare.status, 403)
+      assert.deepEqual(foregrounded, [])
+    })
+  )
+})
+
+test('bringing cmux forward: only a POST is an action', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, foregrounded }) => {
+      for (const method of ['GET', 'PUT', 'DELETE']) assert.equal((await call(FOREGROUND, { method })).status, 404, method)
+      assert.deepEqual(foregrounded, [])
+    })
+  )
+})
+
+test('bringing cmux forward says in fixed words when it could not, whether the runner reports it or throws', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ api, call }) => {
+      const runners = [
+        async () => ({ ok: false }),
+        async () => {
+          throw new Error('/secret/path could not be opened')
+        },
+        () => {
+          throw new Error('sync /secret/path boom')
+        },
+      ]
+      for (const runner of runners) {
+        api.setForegrounder(runner)
+        const res = await post(call, FOREGROUND, {})
+        assert.equal(res.status, 400, String(runner))
+        const body = await res.json()
+        assert.equal(body.ok, false)
+        assert.equal(body.error, 'cmux could not be brought to the front.')
+        assert.ok(!JSON.stringify(body).includes('secret'), 'nothing the runner said is passed on')
+      }
+    })
+  )
+})
+
+test('bringing cmux forward says so, and runs nothing, where it cannot be done this way', async () => {
+  await withLauncher('cmux', () =>
+    withServer(async ({ call, foregrounded }) => {
+      await onPlatform('linux', async () => {
+        const res = await post(call, FOREGROUND, {})
+        assert.equal(res.status, 400)
+        assert.match((await res.json()).error, /macOS/)
+      })
+      assert.deepEqual(foregrounded, [])
+    })
+  )
+})
+
 // ── not duplicating a session cmux already has open ───────────────────────────
 
 test('a session cmux already has open is not launched a second time', async () => {

@@ -92,16 +92,18 @@ export function foregroundArgv(id, platform = process.platform) {
 }
 
 /**
- * Best-effort, and forgotten the moment it is sent: the session already opened, or was already
- * open, before this ever runs, so there is nothing useful to tell the page either way. Never
- * rejects and never reports an error, the same as the OS opener's own fire-and-forget launch.
+ * Never rejects, and resolves `{ ok }` and nothing else: no output, no error text, since the system
+ * opener can say where an application lives. After a launch it is best-effort and forgotten, because the session
+ * already opened, or was already open, before this runs, so there is nothing useful to tell the page
+ * either way. The one action whose whole purpose is this (the "Bring cmux to the front" choice) reads
+ * `ok` and reports a failure in fixed words.
  */
 export function runForeground(argv, run = execFile) {
   return new Promise((resolve) => {
     try {
-      run(argv[0], argv.slice(1), { timeout: 4000, windowsHide: true }, () => resolve())
+      run(argv[0], argv.slice(1), { timeout: 4000, windowsHide: true }, (err) => resolve({ ok: !err }))
     } catch {
-      resolve()
+      resolve({ ok: false })
     }
   })
 }
