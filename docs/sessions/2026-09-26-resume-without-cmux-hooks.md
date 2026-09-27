@@ -12,7 +12,7 @@ tags:
 ## What Was Attempted
 
 - Diagnosed two work-machine symptoms (the doctor said the cmux stream was "not found", and every Resume opened a second workspace) as one cause: cmux's Claude Code integration is off there, so cmux's wrapper injects no hooks and neither `~/.cmuxterm/workstream.jsonl` nor `claude-hook-sessions.json` (the only file `cmux sessions` reads) is ever written. The person confirmed it.
-- Built the hook-free Resume check on branch `feat/resume-without-cmux-hooks`: the launch route also asks an optional adapter method `sessionRunning(id)`, which for Claude Code reads Claude's own live-session marker. Added `cmuxSessionsSummary`, a Resume check row and a terminal count to the doctor, a `launchNote` for the page, spec, plan (Unit 16, D25 to D27), README, a decision and a learning. 494 tests; 19 mutations checked, all caught.
+- Built the hook-free Resume check on branch `feat/resume-without-cmux-hooks`: the launch route also asks an optional adapter method `sessionRunning(id)`, which for Claude Code reads Claude's own live-session marker. Added `cmuxSessionsSummary`, a Resume check row and a terminal count to the doctor, a `launchNote` for the page, spec, plan (Unit 16, D25 to D27), README, a decision and a learning. 495 tests; 18 mutations checked, all caught (one survived the first round and got its own test).
 
 ## What Worked
 
