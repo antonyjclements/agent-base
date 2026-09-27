@@ -10,6 +10,16 @@ import { liveChip } from '../src/game/live-chip.js'
 
 const NOW = Date.UTC(2026, 8, 26, 12)
 const MIN = 60 * 1000
+
+test('file polling and screen detection are labelled separately from hook reporting', () => {
+  assert.equal(liveChip({ active: false, terminalSessions: 1 }).text, 'Claude · files')
+  assert.match(liveChip({ active: false, terminalSessions: 1 }).title, /every three seconds/)
+  assert.equal(liveChip({ active: false, screen: { enabled: true, checked: 1 } }).text, 'cmux screen ●')
+  assert.equal(liveChip({ active: false, screen: { enabled: true, checked: 0 } }).text, 'cmux screen ○')
+  const combined = liveChip({ active: true, tools: {}, sources: [], screen: { enabled: true, checked: 0 } })
+  assert.equal(combined.text, 'Live · Claude ○ Codex ○ · screen ○')
+  assert.match(combined.title, /Screen detection could not read a matched pane/)
+})
 const live = (o = {}) => ({
   active: true,
   tools: { 'claude-code': NOW - 1000, codex: 0 },

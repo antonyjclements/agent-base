@@ -102,6 +102,7 @@ export class LiveStatus {
   #ended = new Map() // key -> when the session ended, kept so an older event read late is still turned away
   #last ={ hooks: { claude: 0, codex: 0 }, cmux: { claude: 0, codex: 0 } }
   #queue = Promise.resolve()
+  #terminalSessions = 0
 
   /**
    * `file` is the hooks' events file. `cmuxFile`, when given, adds cmux's stream as a second source;
@@ -160,6 +161,7 @@ export class LiveStatus {
 
   /** The threads with live status laid over them. Threads and events that do not match are left as they are. */
   overlay(threads) {
+    this.#terminalSessions = threads.filter(t => t.terminalLive).length
     const now = this.#now()
     for (const [key, entry] of this.#entries) {
       if (now - entry.at > TTL[entry.state]) this.#entries.delete(key)
@@ -167,7 +169,7 @@ export class LiveStatus {
     for (const [key, at] of this.#ended) {
       if (now - at > ENDED_MS) this.#ended.delete(key)
     }
-    if (!this.#entries.size && !threads.some(markerBusy)) return threads
+    if (!this.#entries.size && !threads.some(t => markerBusy(t) || t.transcriptStatus)) return threads
 
     const byKey = new Map()
     threads.forEach((thread, i) => {
@@ -197,6 +199,12 @@ export class LiveStatus {
     // Claude's own busy marker competes with the events on time, like any other signal: an event at
     // least as new wins, and a busy stamp newer than the last stop means a new turn has begun.
     threads.forEach((thread, i) => {
+      const transcript = thread.transcriptStatus
+      if (transcript?.at && (newest.get(i) ?? -1) < transcript.at &&
+          !(thread.markerStatus === 'idle' && thread.markerAt >= transcript.at && transcript.state === 'running')) {
+        out[i] = applyEntry(out[i], { ...transcript, source: 'transcript' })
+        newest.set(i, transcript.at)
+      }
       if (!markerBusy(thread)) return
       const at = Number.isFinite(thread.markerAt) ? thread.markerAt : 0
       if ((newest.get(i) ?? -1) >= at) return
@@ -229,6 +237,7 @@ export class LiveStatus {
     const tool = (name) => Math.max(...Object.values(this.#last).map((last) => last[name]))
     return {
       active: sources.some((s) => s.lastAt && now - s.lastAt <= ACTIVE_MS),
+      terminalSessions: this.#terminalSessions,
       tools: { 'claude-code': tool('claude'), codex: tool('codex') },
       sources,
     }

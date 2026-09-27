@@ -95,12 +95,20 @@ terminal-only Claude session into the desktop app, so the import warning does no
 
 ## Live status without hooks
 
-If you run Claude Code in cmux, you get live status with nothing installed (and Codex too, wherever cmux reports
-its sessions, which so far is thinly). Moon Base reads two things the tools already write:
+Moon Base checks live Claude terminal sessions every three seconds, even without hooks. It reads transcripts
+to recognize unanswered questions, plan approvals and completed replies, and compares them with Claude's
+process marker so an older busy stamp does not hide a newer wait. The chip says `Claude · files` when this
+is the only source. Quiet output alone never means waiting.
+
+Moon Base also reads two things the tools already write:
 
 - **cmux's own event stream**, `~/.cmuxterm/workstream.jsonl`: a prompt or tool call turns a bot to running, a
   permission request or a question shows it awaiting you, and a stop shows it finished.
 - **Claude Code's own busy/idle marker**, `~/.claude/sessions/<pid>.json`, which says a session is mid-turn.
+
+cmux's stream depends on **cmux's own Claude integration hooks**. With that integration disabled, the stream
+may be absent; the transcript and marker still work. Ordinary tool permission dialogs need an additional
+signal, because a pending command in a transcript could be running or awaiting approval.
 
 The Live chip names cmux while its stream is reporting (● reporting, ○ present but quiet). When cmux's stream is
 there but has said nothing for ten minutes and nothing else is reporting, the chip stays up as `cmux ○` rather than
@@ -109,6 +117,31 @@ Moon Base reads only the event kind, the session id, the folder and the time. Th
 typed and what the tools returned, and none of that is kept, logged, shown or sent anywhere. Nothing is
 written to cmux's files or to any tool's config, and the cmux socket is not used, so it works however Moon
 Base was started. To stop reading the stream, start Moon Base with `MOON_BASE_CMUX_STATUS=off`.
+
+### Optional cmux screen detection
+
+For terminal-only work where hooks are unavailable, start from inside cmux:
+
+```sh
+MOON_BASE_CMUX_SCREEN=on moonbase1
+```
+
+Stop an existing Moon Base server first: `moonbase1` reuses a running server, whose environment does not
+change when you run the command again. To turn screen detection off, restart without the variable.
+
+This uses `cmux top --all --processes --json` to match Claude's live PID to one terminal pane, then
+`cmux read-screen --workspace <uuid> --surface <uuid>` to read its visible text. It issues no focus commands,
+reads no scrollback and never types or approves anything. No Claude hooks or settings changes are needed.
+Only a detected waiting reason and time are retained; screen text and process command lines are discarded,
+never logged, saved or sent to the browser. It is independent of `MOON_BASE_CMUX_STATUS` and the launcher.
+
+The chip says `cmux screen ●` when matched panes were read, or `○` when none could be read.
+`moonbase1 doctor` reports match/read/wait counts and fixed diagnostics for unavailable cmux or unmatched panes.
+cmux must be on PATH and its existing socket access must allow Moon Base to connect; no access settings are
+changed. Unsupported cmux versions, ambiguous matches and unknown prompt layouts fall back to file inference.
+Detection recognizes supported English question/approval controls, not every Claude layout. Up to sixteen
+panes are sampled per scan, rotating through larger sets. The normal polling interval is three seconds plus
+scan time; larger sets take longer. Confirm background reads leave focus unchanged on your cmux version.
 
 If a bot is not live when you expect it to be, `moonbase1 doctor` says which source is reporting and why any
 other is not.
@@ -141,7 +174,8 @@ npm run moon-base -- uninstall-hooks           # remove exactly what was added
 - The server listens on your own machine only, and answers only requests that carry its own page's Host and
   Origin, which stops other websites from driving it.
 - The only thing it starts is your OS opener, with a `claude://` or `codex://` link, and, only if you started
-  it with `MOON_BASE_TERMINAL=cmux`, the `cmux` command. A request cannot name a command, a program or a
+  it with `MOON_BASE_TERMINAL=cmux`, the `cmux` launcher. Opt-in `MOON_BASE_CMUX_SCREEN=on` also permits the
+  fixed read-only cmux status commands described above. A request cannot name a command, a program or a
   launcher: a thread is looked up by id in the server's own scan, and a new session can only start in a folder
   that a known thread already lives in.
 - A terminal command is built only from the tool's name, `resume`/`--resume` and a session id that is checked to
@@ -165,6 +199,7 @@ npm run moon-base -- uninstall-hooks           # remove exactly what was added
 | `MOON_BASE_HOME` | Where the hooks and their events live (default `~/.moon-base`). |
 | `MOON_BASE_CMUX_STATUS` | Set to `off` (or `0`, `false`, `no`) to stop Moon Base reading cmux's own event stream for live status. Anything else leaves it on. |
 | `MOON_BASE_CMUX_DIR` | Where cmux keeps its stream, if it is not in `~/.cmuxterm`. |
+| `MOON_BASE_CMUX_SCREEN` | Set to `on` (also `1`, `true`, `yes`) to detect visible questions/approvals in matched Claude terminal panes. Off by default; requires cmux socket access. Restart the server to change it. |
 | `MOON_BASE_TERMINAL` | Set to `cmux` to let Open and the new-thread buttons open a cmux workspace. Anything else does nothing. Start Moon Base from a cmux terminal (see above). |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME` | Where to find each tool's data, if it is not in its usual place. |
 | `MOON_BASE_CLAUDE_DESKTOP` | Where Claude's desktop app keeps its session records. |

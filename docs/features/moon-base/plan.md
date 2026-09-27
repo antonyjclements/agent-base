@@ -325,6 +325,45 @@ Goal: one choice under `Open sessions with` that only brings cmux forward. D28.
 - What tests cannot see: the page half (`main.js`, `hud.js`). It was checked in a real browser on the personal machine: the option and its label, the Open button reading "Show" with its tooltip, the new-thread tooltips, and then a real click, which sent `POST /api/terminal-foreground` (200) and made cmux the frontmost application. That check also found the option's first label made the settings select 88px wider than its row and broke the panel, so the label was measured and shortened to the width of the old longest one.
 - **M11 (AC13, at work).** Choose "Bring cmux to the front" (start with `moonbase1` inside cmux), click a bot, and expect cmux to come forward and no new workspace.
 
+## Terminal responsiveness addition (AC16)
+
+Requested after confirming cmux `read-screen` prints a Claude session at work. No hooks or desktop app can be assumed. This reversible, opt-in display feature follows acceptance-first; `docs/standards/index.yml` is empty. Prior units above are historical; this addition does not reopen them.
+
+### Unit 18. Transcript evidence and polling
+
+- Parse a bounded transcript tail into timestamped state, retaining unresolved interactive calls by id until answered. Separate completed turns from intermediate assistant text; a busy marker still protects genuinely running work.
+- Combine transcript, marker and event timestamps, preserving newer events and new-turn markers. Keep waiting sessions detectable beyond the old thirty-minute freshness window while their terminal process lives.
+- A live terminal process selects the existing three-second polling cadence even if no hooks report. Do not label file inference as live hook reporting.
+- Files: `server/harnesses/claude-code.mjs`, `server/hooks/live.mjs`, `src/main.js`, `src/game/poll-interval.js`.
+- Tests before implementation: `test/terminal-status.test.mjs`, `test/live-layers.test.mjs`, `test/poll-interval.test.mjs`: unmatched questions/plans, partial and matching results, new prompts, intermediate text, old/new busy stamps, idle markers, dead processes, long waits, and poll cadence without events.
+
+### Unit 19. Optional cmux screen evidence
+
+- Use `cmux --json top --all --processes` for exact live PID-to-surface matching, using the same process-tree fields as cmux's own CLI. This avoids hook registries and manual mappings. Match UUIDs only; skip ambiguity, including multiple Claude processes in one pane.
+- Read visible text with explicit workspace/surface ids. No focus, input, scrollback, shell, or request-controlled command. Keep subprocess execution in `server/lib/terminal.mjs`; parse and discard text in `server/status/cmux-screen.mjs`.
+- Opt in with `MOON_BASE_CMUX_SCREEN=on`. Fixed timeout/output limits, bounded batches with fair rotation for many panes, coalesced concurrent scans, and short-lived status-only cache. Failure discards evidence and falls back. Only the active dialog footer plus selected numbered option signals a wait; ordinary quotes and old scrollback do not.
+- Files: the two modules above, `server/scan.mjs`, `cli/doctor.mjs`, `src/game/live-chip.js`. Tests: `test/cmux-screen.test.mjs`, `test/terminal-lib.test.mjs`, `test/live-api.test.mjs`, `test/cli-doctor.test.mjs`, `test/live-chip.test.mjs`.
+- Scenarios: exact mapping across multiple workspaces, same cwd/different sessions, duplicates, missing cmux/socket, malformed tree, disabled mode makes no calls, output limits/timeouts, recognized/unknown prompts, answer clears evidence, sentinel content absent from status and diagnostics, fixed argument lists with no focus commands.
+
+### Unit 20. Verification and handoff
+
+- Update README with opt-in startup, source distinctions, restart requirement for an already running server, and limits. Add immutable decision for opt-in screen reading, supplementing the socket-free event-stream decision.
+- Run focused tests, full `npm test`, build, review and workflow compliance. Verify new chip text in a browser when practical. The user subsequently requested committing and pushing directly to main.
+- Manual work-machine checkpoint M12: background reads do not switch focus; questions, plans, permissions and answers update the correct bot; multiple panes of the same repo remain distinct. cmux refuses socket access from the implementation environment because it is outside cmux's process tree; do not claim M12 passed from mocked tests. Prompt recognition is conservative and version-dependent.
+- Deferred: input/approval automation, remote sessions, generic terminal scraping and guarantees for every Claude terminal layout.
+
+### AC16 verification and handoff evidence
+
+Implementation and automated verification for Units 18–20 are complete. The plan remains active for the real-machine checks, including M12; none of those is claimed complete by fixtures.
+
+- Acceptance-first: transcript/poll tests failed on the old implementation before changes. Screen integration, command limits, opt-in behavior, ambiguous binding, answer/failure clearing, batched reads, privacy, doctor and chip have automated coverage in the files above.
+- Full suite: 528 tests pass with loopback access. The initial sandbox run denied local HTTP sockets; rerunning with that access resolved the environment failures. Focused checks were rerun after the final chip wording and scan fallback edits.
+- Production build passes; Vite still warns about its large bundle. Spec trace and whitespace checks pass.
+- Mutation checks: matching-answer removal, bypassing newer evidence, bypassing opt-in, and accepting ambiguous pane matches each cause a named regression test to fail. Original source bytes restored afterwards. Other new assertions were not mutation-tested.
+- Browser: app loads without console errors; screen-unavailable indicator renders. Its first combined label overflowed by four pixels; shortening it fixed the observed layout. Real cmux listing from outside its process tree was refused. No access settings were changed and no real terminal prompt was read.
+- Review: correctness, tests, maintainability, security/privacy, performance, API compatibility, frontend concurrency and project standards checked sequentially. Fixed possible overlapping reads from distinct concurrent scans and the chip overflow. No remaining actionable findings; conservative prompt recognition and M12 remain limitations.
+- README includes opt-in start/restart instructions, diagnosis and limits. The immutable screen-status decision is linked from the spec/index. Workflow review/compliance completed as local readiness checks before the user's subsequent request to commit and push directly to main; no PR requested.
+
 ## Test Plan
 
 - Unit tests and fixtures are in the paths above and run with `npm test` (`node --test "test/**/*.test.mjs"`).

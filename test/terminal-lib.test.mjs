@@ -13,8 +13,28 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { cmuxSessionOpen, cmuxSessionsSummary, commandLine, foregroundArgv, launcherArgv, launcherFromEnv, pasteLine, runForeground, runLauncher, shellQuote } from '../server/lib/terminal.mjs'
+import { cmuxProcessTree, cmuxReadScreen } from '../server/lib/terminal.mjs'
 
 const ID = '019cc762-45a2-7112-89cd-cd345c17e834'
+
+test('screen status commands are bounded read-only argument lists and invalid targets run nothing', async () => {
+  const calls = []
+  const run = (cmd, args, options, done) => { calls.push({ cmd, args, options }); done(null, args.includes('top') ? '{"windows":[]}' : 'visible text') }
+  assert.deepEqual(await cmuxProcessTree(run), { windows: [] })
+  assert.equal(await cmuxReadScreen({ workspace: ID, surface: ID }, run), 'visible text')
+  assert.deepEqual(calls.map(c => [c.cmd, ...c.args]), [
+    ['cmux', '--json', '--id-format', 'uuids', 'top', '--all', '--processes'],
+    ['cmux', 'read-screen', '--workspace', ID, '--surface', ID],
+  ])
+  assert.ok(calls.every(c => c.options.timeout === 1200 && c.options.maxBuffer <= 1024 * 1024 && !c.options.shell))
+  assert.equal(await cmuxReadScreen({ workspace: '--focus', surface: ID }, run), null)
+  assert.equal(calls.length, 2)
+  for (const failure of [(_c, _a, _o, done) => done(Error('secret'), 'secret'), () => { throw Error('secret') }]) {
+    assert.equal(await cmuxProcessTree(failure), null)
+    assert.equal(await cmuxReadScreen({ workspace: ID, surface: ID }, failure), null)
+  }
+  assert.equal(await cmuxProcessTree((_c, _a, _o, done) => done(null, 'malformed')), null)
+})
 
 // ── what may go into a command ────────────────────────────────────────────────
 

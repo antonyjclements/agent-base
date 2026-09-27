@@ -8,6 +8,8 @@
  */
 import { HARNESSES, detectedHarnesses, harnessById } from './harnesses/index.mjs'
 import { liveStatus } from './hooks/live.mjs'
+import { liveSessionMarkers } from './harnesses/claude-code.mjs'
+import { cmuxScreenStatus } from './status/cmux-screen.mjs'
 
 /**
  * A project's ground is keyed on its name, and a name is the last segment of its path — so two
@@ -99,11 +101,17 @@ export async function scanThreads() {
   // the scan found and never add one, and a missing or unreadable events file changes nothing.
   const live = liveStatus()
   await live.refresh().catch(() => {})
-  return live.overlay(threads)
+  const overlaid = live.overlay(threads)
+  const screens = cmuxScreenStatus()
+  return screens.enabled ? screens.overlay(overlaid, await liveSessionMarkers().catch(() => new Map())) : overlaid
 }
 
 /** Whether hooks are reporting, and when each tool last did — for the page's poll rate and its live chip. */
-export const liveSummary = () => liveStatus().summary()
+export const liveSummary = () => {
+  const live = liveStatus().summary()
+  const screen = cmuxScreenStatus().summary()
+  return { ...live, screen }
+}
 
 /** What the HUD shows in the harness list: who is installed, and what they can do. */
 export async function harnessStatus() {

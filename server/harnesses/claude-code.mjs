@@ -237,7 +237,7 @@ async function scanTranscripts() {
   return byId
 }
 
-/** How much of a transcript's end it takes to see whose turn it is. One record is plenty. */
+/** Bounded recent history, including tool calls and matching answers. */
 const TAIL_BYTES = 64 * 1024
 
 /**
@@ -248,31 +248,46 @@ const TAIL_BYTES = 64 * 1024
  * finished four minutes ago and asked you a question as *working* — an astronaut hammering away
  * at a thread whose whole point is that it is waiting.
  *
- * The transcript says which it is. A last assistant message that called a tool is mid-turn; one
- * that called nothing has handed the turn back and the reply is yours. `stop_reason` alone will
- * not do — it is `end_turn` on a main thread's last message and empty on some others — so what
- * the message *called* is the half worth testing.
+ * Interactive tool calls wait for their matching answer. Other tool calls are mid-turn.
+ * Legacy assistant text with no stop reason remains a fallback hint, but only explicit end-turn
+ * evidence can override a busy marker (intermediate streamed text is not a completed turn).
  *
  * Only threads that could plausibly be running pay for this, so it costs one small read each.
  */
 async function awaitingReply(file) {
+  return (await transcriptStatus(file))?.state === 'awaiting'
+}
+
+/** A bounded tail, reduced immediately to state/time; no prompt content escapes. */
+async function transcriptStatus(file) {
   let records
   try {
     records = jsonLines(await readTail(file, TAIL_BYTES))
   } catch {
-    return false
+    return null
   }
-  for (let i = records.length - 1; i >= 0; i--) {
-    const r = records[i]
-    // A user turn, a tool result or an attachment all mean the model speaks next — whatever the
-    // process is doing, it is not waiting on anyone.
-    if (r.type === 'user') return false
-    if (r.type !== 'assistant') continue
-    const content = r.message?.content
-    const calling = Array.isArray(content) && content.some((c) => c?.type === 'tool_use')
-    return !calling && r.message?.stop_reason !== 'tool_use'
+  const pending = new Map()
+  let latest = null
+  for (const r of records) {
+    const at = Date.parse(r.timestamp) || 0
+    const parts = Array.isArray(r.message?.content) ? r.message.content : []
+    if (r.type === 'user') {
+      const results = parts.filter(p => p?.type === 'tool_result')
+      if (!results.length) pending.clear()
+      for (const result of results) pending.delete(result.tool_use_id)
+      latest = { state: 'running', at, decisive: true }
+    } else if (r.type === 'assistant') {
+      const calls = parts.filter(p => p?.type === 'tool_use')
+      for (const call of calls) {
+        if (typeof call.id === 'string' && ['AskUserQuestion', 'ExitPlanMode'].includes(call.name)) {
+          pending.set(call.id, { state: 'awaiting', at, decisive: true })
+        }
+      }
+      const finished = !calls.length && r.message?.stop_reason !== 'tool_use'
+      latest = { state: finished ? 'awaiting' : 'running', at, decisive: r.message?.stop_reason === 'end_turn' || calls.length > 0 }
+    }
   }
-  return false
+  return [...pending.values()].at(-1) || latest
 }
 
 /** Transcript metadata is expensive to parse, so keep it until the file changes. */
@@ -307,10 +322,10 @@ function markerOf(record) {
   }
 }
 
-/** The two fields a thread carries from its marker; empty when there is no live process behind it. */
+/** Public status fields only; process ids stay in the server-side marker map. */
 function markerFields(live, sessionId) {
   const marker = live.get(sessionId)
-  return { markerStatus: marker?.status || '', markerAt: marker?.at || 0 }
+  return { markerStatus: marker?.status || '', markerAt: marker?.at || 0, terminalLive: marker?.cli === true }
 }
 
 /**
@@ -337,7 +352,8 @@ async function scanLiveSessions() {
       const speaks = !known || marker.at > known.at || (marker.at === known.at && marker.status === 'busy') ? marker : known
       // Which marker speaks for the status is one question; whether any of them is a terminal process is
       // another, so a newer desktop-app marker cannot hide an older terminal one.
-      live.set(record.sessionId, { ...speaks, cli: marker.cli || known?.cli === true })
+      const terminalPids = [...(known?.terminalPids || []), ...(marker.cli ? [record.pid] : [])]
+      live.set(record.sessionId, { ...speaks, cli: marker.cli || known?.cli === true, terminalPids })
     } catch {
       /* process is gone */
     }
@@ -650,9 +666,12 @@ async function scanThreads() {
     const seenAt = thread.recordActivityAt ?? thread.lastActivityAt
     thread.unread = thread.desktopSessionIds.length > 0 && seenAt > thread.lastFocusedAt
     const fresh = now - thread.lastActivityAt < ACTIVE_WINDOW_MS
-    const waiting =
-      thread.hasLiveProcess && fresh && thread.transcriptFile ? await awaitingReply(thread.transcriptFile) : false
+    const evidence = thread.hasLiveProcess && (fresh || thread.terminalLive) && thread.transcriptFile
+      ? await transcriptStatus(thread.transcriptFile) : null
+    const waiting = evidence?.state === 'awaiting'
+    if (evidence?.decisive && evidence.at) thread.transcriptStatus = { state: evidence.state, at: evidence.at }
     thread.running = thread.hasLiveProcess && fresh && !waiting
+    if (thread.markerStatus === 'idle' && thread.markerAt >= (evidence?.at || 0)) thread.running = false
     // A thread that handed the turn back wants you, whether or not the desktop app has ever seen
     // it — the only way a terminal-only thread can ask for anything at all.
     if (waiting) thread.unread = true

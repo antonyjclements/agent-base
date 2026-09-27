@@ -1,4 +1,12 @@
 decisions:
+  - path: docs/decisions/2026-09-26-opt-in-cmux-screen-status-without-hooks.md
+    title: Read matched cmux panes only by opt-in to detect waiting without hooks
+    date: 2026-09-26
+    status: active
+    tags:
+      - cmux
+      - live-status
+      - privacy
   - path: docs/decisions/2026-09-26-fork-bot-crossing-and-trim-to-two-tools.md
     title: Fork Bot Crossing and trim it to Claude Code and Codex
     date: 2026-09-26

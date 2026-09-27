@@ -20,6 +20,27 @@ const SID = '2edc9798-ed07-4ec1-8e47-5a2d51565b92'
 const OTHER = '01a0dbe2-aaaa-7c61-999c-16e6243ba432'
 const MIN = 60 * 1000
 
+test('terminal presence speeds polling without claiming events, and disappears on the next scan', async () => {
+  await withLayers(async ({ live }) => {
+    await scan(live, [claude({ terminalLive: true })])
+    assert.equal(live.summary().terminalSessions, 1)
+    assert.equal(live.summary().active, false)
+    await scan(live, [])
+    assert.equal(live.summary().terminalSessions, 0)
+  })
+})
+
+test('newer events supersede transcript waits and newer transcript waits supersede old running events', async () => {
+  await withLayers(async ({ live, hook }) => {
+    await hook({ event: 'UserPromptSubmit', ts: NOW })
+    let [t] = await scan(live, [claude({ transcriptStatus: { state: 'awaiting', at: NOW - 1000 } })])
+    assert.equal(t.running, true)
+    ;[t] = await scan(live, [claude({ transcriptStatus: { state: 'awaiting', at: NOW + 1000 } })])
+    assert.equal(t.running, false)
+    assert.equal(t.unread, true)
+  })
+})
+
 const hookLine = (o) => JSON.stringify({ v: 1, ts: NOW, tool: 'claude', event: 'UserPromptSubmit', sessionId: SID, ...o })
 
 async function withLayers(fn, { cmux = true } = {}) {

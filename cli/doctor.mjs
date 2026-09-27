@@ -6,13 +6,14 @@
  *
  * It says kinds, counts and ages. It never prints what a session said (a cmux row's content), an
  * environment value, a path or an id: the person running it may paste the output into a chat to ask why
- * a bot is missing, and that has to be safe.
+ * a bot is missing, and that has to be safe. Opt-in screen checks use the same bounded reader as the server.
  */
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { cmuxFile, cmuxStatusEnabled } from '../server/hooks/cmux.mjs'
 import { eventsFile } from '../server/hooks/events.mjs'
 import { LiveStatus } from '../server/hooks/live.mjs'
+import { CmuxScreenStatus, screenStatusEnabled } from '../server/status/cmux-screen.mjs'
 import { cmuxSessionsSummary } from '../server/lib/terminal.mjs'
 import { buildState } from './build.mjs'
 import { insideCmux } from './cmux-env.mjs'
@@ -111,7 +112,8 @@ export async function doctor(_argv, io = {}) {
       ? describe(sources.cmux, { what: 'row', missing: 'not found. cmux writes its stream only while its Claude Code integration is on; without it, status comes from Claude’s own busy marker' }, t)
       : 'switched off (MOON_BASE_CMUX_STATUS)'
   )
-  const found = [...(await markers()).values()]
+  const markerMap = await markers()
+  const found = [...markerMap.values()]
   const count = (status) => found.filter((m) => m.status === status).length
   const terminal = found.filter((m) => m.cli === true).length
   row(
@@ -120,6 +122,20 @@ export async function doctor(_argv, io = {}) {
       ? `${found.length} live session${found.length === 1 ? '' : 's'} (${count('busy')} busy, ${count('idle')} idle); ${terminal} in a terminal`
       : 'no live sessions'
   )
+
+  const screens = io.screens ?? new CmuxScreenStatus({ enabled: screenStatusEnabled(env), now })
+  if (screens.enabled) {
+    await screens.overlay([...markerMap].map(([id, m]) => ({ harness: 'claude-code', terminalLive: m.cli, ref: { cliSessionId: id } })), markerMap)
+  }
+  const screen = screens.summary()
+  const screenProblem = {
+    off: 'off (opt in with MOON_BASE_CMUX_SCREEN=on)',
+    'no-sessions': 'no live terminal sessions to match',
+    unavailable: 'cmux process listing unavailable; check PATH, cmux version and socket access from this terminal',
+    'no-match': 'no unambiguous process-to-pane match; using files',
+    'read-failed': 'one or more panes could not be read; using files for those panes',
+  }
+  row('cmux screen', `${screenProblem[screen.problem] || 'reading visible panes'}${screen.enabled ? ` (${screen.matched} matched, ${screen.checked} read, ${screen.waiting} waiting)` : ''}`)
 
   // Why a Resume might open a second workspace: what cmux knows is only as good as its Claude Code integration.
   const known = await Promise.resolve()

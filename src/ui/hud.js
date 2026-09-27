@@ -1018,8 +1018,7 @@ export class Hud {
   }
 
   /**
-   * Which tools are reporting live through hooks. Hidden until one has; without hooks everything
-   * is inferred from the tools' files, which is the normal case and nothing to announce.
+   * Name live events, file polling or opt-in screen detection without conflating their evidence.
    */
   setLive(live) {
     const chip = this.$('.live-chip')

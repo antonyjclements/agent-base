@@ -14,6 +14,7 @@ import path from 'node:path'
 import { SENTINEL, cmuxRow, fakeCmux, writeMarker } from './support/fixtures.mjs'
 import { doctor } from '../cli/doctor.mjs'
 import { LiveStatus } from '../server/hooks/live.mjs'
+import { CmuxScreenStatus } from '../server/status/cmux-screen.mjs'
 
 const NOW = Date.UTC(2026, 8, 26, 12)
 const MIN = 60 * 1000
@@ -38,7 +39,7 @@ async function withWorld(fn) {
 }
 
 /** Run the doctor against a fake world. */
-async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map(), asked, cmuxSessions = async () => ({ answered: false, why: 'missing' }) } = {}) {
+async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, build = { state: 'fresh' }, markers = new Map(), asked, screens, cmuxSessions = async () => ({ answered: false, why: 'missing' }) } = {}) {
   const lines = []
   const code = await doctor([], {
     env: { MOON_BASE_HOME: world.moonHome, MOON_BASE_CMUX_DIR: world.cmux.dir, ...env },
@@ -51,6 +52,7 @@ async function diagnose(world, { env = {}, ports = { 5274: { kind: 'free' } }, b
     build: { state: async () => build },
     markers: async () => markers,
     cmuxSessions,
+    screens,
   })
   return { code, text: lines.join('\n'), lines }
 }
@@ -64,6 +66,19 @@ process.env.MOON_BASE_CLAUDE_DESKTOP = path.join(claudeConfig, 'no-desktop')
 const line = (text, label) => text.split('\n').find((l) => l.trim().toLowerCase().startsWith(label.toLowerCase())) ?? ''
 
 // ── start ─────────────────────────────────────────────────────────────────────
+
+test('screen doctor reports off, unmatched and failed reads without leaking text or ids', async () => {
+  await withWorld(async w => {
+    assert.match((await diagnose(w)).text, /cmux screen:.*off/)
+    const markers = new Map([['SECRET_SESSION', { cli: true, terminalPids: [42] }]])
+    const screens = new CmuxScreenStatus({ enabled: true, top: async () => { throw Error(SENTINEL) } })
+    const r = await diagnose(w, { markers, screens })
+    assert.match(r.text, /cmux screen:.*unavailable/)
+    assert.ok(!r.text.includes(SENTINEL) && !r.text.includes('SECRET_SESSION'))
+    const empty = new CmuxScreenStatus({ enabled: true, top: async () => ({ windows: [] }) })
+    assert.match((await diagnose(w, { markers, screens: empty })).text, /no unambiguous process-to-pane match/)
+  })
+})
 
 test('it says whether it is inside cmux and what the launcher will be', async () => {
   await withWorld(async (w) => {

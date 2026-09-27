@@ -110,6 +110,30 @@ export function runForeground(argv, run = execFile) {
 
 const TIMEOUT_MS = 8000
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const cmuxHandle = value => typeof value === 'string' && UUID.test(value)
+
+/** Read-only status commands. Never return stderr or interpolate a command through a shell. */
+function cmuxRead(args, maxBuffer, run) {
+  return new Promise(resolve => {
+    try {
+      run('cmux', args, { timeout: 1200, maxBuffer, windowsHide: true }, (err, stdout) => {
+        resolve(err ? null : String(stdout ?? ''))
+      })
+    } catch { resolve(null) }
+  })
+}
+
+export async function cmuxProcessTree(run = execFile) {
+  const text = await cmuxRead(['--json', '--id-format', 'uuids', 'top', '--all', '--processes'], 1024 * 1024, run)
+  try { return JSON.parse(text) } catch { return null }
+}
+
+export function cmuxReadScreen({ workspace, surface }, run = execFile) {
+  if (!cmuxHandle(workspace) || !cmuxHandle(surface)) return Promise.resolve(null)
+  return cmuxRead(['read-screen', '--workspace', workspace, '--surface', surface], 64 * 1024, run)
+}
+
 /**
  * What the page is told when a launch fails. Fixed words: the tool's own output can hold paths and
  * account details, and none of it is the page's business.

@@ -15,11 +15,21 @@ const FRESH_MS = 10 * 60 * 1000
 export function liveChip(live, now = Date.now()) {
   const sources = Array.isArray(live?.sources) ? live.sources.filter((s) => s && typeof s === 'object') : []
   const cmux = sources.find((s) => s.id === 'cmux' && s.present)
-  if (!live?.active && !cmux) return null
+  if (!live?.active && !cmux) {
+    if (live?.screen?.enabled) return {
+      text: `cmux screen ${live.screen.checked > 0 ? '●' : '○'}`,
+      title: live.screen.checked > 0
+        ? 'Reading matched Claude terminal panes for questions and approvals. Unknown screens use transcript and marker inference.'
+        : 'Screen detection is enabled but no matched pane was read. Run moonbase1 doctor for details. Status uses transcript and marker inference.',
+    }
+    if (live?.terminalSessions > 0) return { text: 'Claude · files', title: 'Checking live terminal sessions every three seconds using Claude’s transcripts and process markers. Hooks are not reporting.' }
+    return null
+  }
   const dot = (at) => (at && now - at < FRESH_MS ? '●' : '○')
 
-  let text = `Live · Claude Code ${dot(live.tools?.['claude-code'])} Codex ${dot(live.tools?.codex)}`
+  let text = `Live · ${live.screen?.enabled ? 'Claude' : 'Claude Code'} ${dot(live.tools?.['claude-code'])} Codex ${dot(live.tools?.codex)}`
   if (cmux) text += ` · cmux ${dot(cmux.lastAt)}`
+  if (live.screen?.enabled) text += ` · screen ${live.screen.checked > 0 ? '●' : '○'}`
 
   let title
   if (live.active) {
@@ -30,5 +40,8 @@ export function liveChip(live, now = Date.now()) {
     title = 'Nothing has reported live in the last ten minutes, so status is being inferred from the tools’ files.'
   }
   if (cmux && !(cmux.lastAt && now - cmux.lastAt < FRESH_MS)) title += ' cmux is there but has said nothing lately.'
+  if (live.screen?.enabled) title += live.screen.checked > 0
+    ? ' Screen detection is reading matched terminal panes for questions and approvals.'
+    : ' Screen detection could not read a matched pane; run moonbase1 doctor for details.'
   return { text, title }
 }

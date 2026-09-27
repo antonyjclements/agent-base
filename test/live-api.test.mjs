@@ -12,9 +12,10 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { SESSION_ID, SENTINEL, cmuxRow, line, fakeCodex, listing } from './support/fixtures.mjs'
+import { SESSION_ID, SENTINEL, cmuxRow, line, fakeCodex, listing, writeMarker } from './support/fixtures.mjs'
 import { withServer } from './support/with-server.mjs'
 import { resetLiveStatus } from '../server/hooks/live.mjs'
+import { resetCmuxScreenStatus } from '../server/status/cmux-screen.mjs'
 
 const OTHER = '01a0dbe2-aaaa-7c61-999c-16e6243ba432'
 
@@ -173,6 +174,41 @@ test('reading cmux’s stream writes nothing: its folder is exactly as cmux left
   })
   assert.deepEqual(await listing(cmuxDir), before)
   assert.deepEqual(await fsp.readdir(cmuxDir), ['workstream.jsonl'])
+})
+
+// @spec:MB-016
+test('hook-free Claude screen evidence reaches the API, clears after answering, and never exposes terminal text', async () => {
+  const config = path.join(scratch, 'claude-config')
+  const project = path.join(config, 'projects', '-tmp-demo')
+  await fsp.mkdir(project, { recursive: true })
+  await fsp.writeFile(path.join(project, `${OTHER}.jsonl`), JSON.stringify({ type: 'user', cwd: '/tmp/demo', timestamp: new Date(Date.now() - 1000).toISOString(), message: { content: 'help' } }) + '\n')
+  await writeMarker(config, { sessionId: OTHER, extra: { entrypoint: 'cli' } })
+  const workspace = '11111111-1111-4111-8111-111111111111'
+  const surface = '22222222-2222-4222-8222-222222222222'
+  const top = async () => ({ windows: [{ workspaces: [{ id: workspace, panes: [{ surfaces: [{ id: surface, top_level_pids: [process.pid] }] }] }] }] })
+  let screen = `${SENTINEL}\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel`
+  let now = Date.now() + 2000
+  resetCmuxScreenStatus({ enabled: true, top, read: async () => screen, now: () => now })
+  try {
+    await withServer(async ({ call }) => {
+      const body = await threads(call)
+      const t = body.threads.find(t => t.id === `claude-code:${OTHER}`)
+      assert.equal(t.running, false)
+      assert.equal(t.unread, true)
+      assert.equal(t.liveSource, 'cmux-screen')
+      assert.equal(body.live.terminalSessions, 1)
+      assert.equal(body.live.screen.checked, 1)
+      for (const endpoint of ['/api/threads', '/api/harnesses', '/api/state', '/api/terminal-launcher']) {
+        const text = await (await call(endpoint)).text()
+        assert.ok(!text.includes(SENTINEL) && !text.includes(workspace) && !text.includes(surface))
+        assert.ok(!text.includes('terminalPids'))
+      }
+      screen = 'Working...'; now += 3000
+      const answered = (await threads(call)).threads.find(t => t.id === `claude-code:${OTHER}`)
+      assert.equal(answered.running, true)
+      assert.notEqual(answered.liveSource, 'cmux-screen')
+    })
+  } finally { resetCmuxScreenStatus() }
 })
 
 test.after(async () => {

@@ -29,6 +29,7 @@ import {
 import { foregroundNote, launchNote, resolveOpenMode } from './game/open-mode.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
+import { pollInterval } from './game/poll-interval.js'
 
 /**
  * Boot and the outer game loop.
@@ -39,9 +40,6 @@ import { withErrands } from './game/errands.js'
  * can never silently drop an archive. Everything else is wiring.
  */
 
-const POLL_MS = 15000
-/** While any tool is reporting through hooks, ask often enough that a change shows within a few seconds. */
-const LIVE_POLL_MS = 3000
 const app = document.getElementById('app')
 
 app.insertAdjacentHTML(
@@ -1033,7 +1031,8 @@ async function poll() {
     polling = false
     // One timer, reset after every poll, so a focus or a click that polls early does not start a second chain.
     clearTimeout(nextPoll)
-    nextPoll = setTimeout(poll, live?.active ? LIVE_POLL_MS : POLL_MS)
+    // @spec MB-016
+    nextPoll = setTimeout(poll, pollInterval(live))
   }
 }
 

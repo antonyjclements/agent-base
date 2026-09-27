@@ -18,3 +18,10 @@
 {"ts":"2026-09-27T01:55:34.101Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-commit-push-pr","source":"skill","workflow_step":"commit_push_pr"}
 {"ts":"2026-09-27T02:33:15.607Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-work","source":"skill","workflow_step":"work"}
 {"ts":"2026-09-27T02:46:20.142Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-commit-push-pr","source":"skill","workflow_step":"commit_push_pr"}
+{"ts":"2026-09-27T03:09:03.408Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-debug","source":"skill"}
+{"ts":"2026-09-27T03:20:52.751Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-work","source":"skill","workflow_step":"work"}
+{"ts":"2026-09-27T03:20:52.780Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-plan","source":"skill","workflow_step":"plan"}
+{"ts":"2026-09-27T03:25:51.924Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-capture","source":"skill"}
+{"ts":"2026-09-27T03:26:35.838Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-review","source":"skill","workflow_step":"review"}
+{"ts":"2026-09-27T03:36:28.338Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-check-workflow-compliance","source":"skill","workflow_step":"check_workflow_compliance"}
+{"ts":"2026-09-27T03:41:56.783Z","session_id":"69e29cf9-564c-41f8-9eda-0caac6da622d","skill":"aw-commit","source":"skill","workflow_step":"commit"}
