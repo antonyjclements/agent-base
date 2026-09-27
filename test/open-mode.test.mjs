@@ -5,13 +5,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { OPEN_MODES, launchNote, resolveOpenMode } from '../src/game/open-mode.js'
+import { OPEN_MODES, foregroundNote, launchNote, resolveOpenMode } from '../src/game/open-mode.js'
 import { Settings } from '../src/core/settings.js'
 
 const CMUX = { id: 'cmux', label: 'cmux' }
 
-test('the ways to open are automatic, the desktop app, a copied command and a terminal', () => {
-  assert.deepEqual([...OPEN_MODES], ['auto', 'app', 'copy', 'terminal'])
+test('the ways to open are automatic, the desktop app, a copied command, a terminal, and just bringing cmux forward', () => {
+  assert.deepEqual([...OPEN_MODES], ['auto', 'app', 'copy', 'terminal', 'foreground'])
 })
 
 test('automatic is the terminal where the server has a launcher, and the desktop app where it does not', () => {
@@ -27,11 +27,18 @@ test('what is chosen is what happens, when it can', () => {
   assert.equal(resolveOpenMode('copy', null), 'copy')
   assert.equal(resolveOpenMode('copy', CMUX), 'copy')
   assert.equal(resolveOpenMode('terminal', CMUX), 'terminal')
+  assert.equal(resolveOpenMode('foreground', CMUX), 'foreground')
 })
 
 test('a stored terminal choice falls back to copying when the launcher is off', () => {
   for (const launcher of [null, undefined, false, {}, { id: '' }]) {
     assert.equal(resolveOpenMode('terminal', launcher), 'copy', JSON.stringify(launcher))
+  }
+})
+
+test('a stored bring-cmux-forward choice copies instead when the launcher is off, exactly like Terminal', () => {
+  for (const launcher of [null, undefined, false, {}, { id: '' }]) {
+    assert.equal(resolveOpenMode('foreground', launcher), 'copy', JSON.stringify(launcher))
   }
 })
 
@@ -50,7 +57,7 @@ test('a choice already stored is kept, and an install that never chose is automa
     globalThis.localStorage = { getItem: () => JSON.stringify(value), setItem() {} }
   }
   try {
-    for (const chosen of ['app', 'copy', 'terminal']) {
+    for (const chosen of ['app', 'copy', 'terminal', 'foreground']) {
       store({ openWith: chosen })
       assert.equal(new Settings().get('openWith'), chosen)
     }
@@ -71,4 +78,10 @@ test('what the page tells the person after a terminal launch says which check an
   )
   assert.equal(launchNote({ ok: true, already: true, via: 'something-new' }, 'cmux'), 'Already open in cmux', 'an unknown source reads as the usual answer')
   assert.equal(launchNote({ ok: true, via: 'claude' }, 'cmux'), 'Opened in cmux', 'via only means something when it was already open')
+})
+
+test('bringing cmux forward is told plainly, and for a new thread it says the thread is still yours to start', () => {
+  assert.equal(foregroundNote('cmux'), 'Brought cmux to the front')
+  assert.equal(foregroundNote('cmux', 'Claude Code'), 'Brought cmux to the front. Start the new Claude Code thread there')
+  assert.equal(foregroundNote('cmux', ''), 'Brought cmux to the front', 'no tool named, no new thread')
 })

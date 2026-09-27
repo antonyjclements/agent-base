@@ -6,6 +6,7 @@
  *   app       hand it to the tool's desktop app through its URL scheme
  *   copy      put the terminal command on the clipboard, to paste into any terminal
  *   terminal  have the server open it in the terminal it was started for (`MOON_BASE_TERMINAL`)
+ *   foreground  do nothing but bring that terminal to the front, for sessions that already run there
  *
  * `auto` exists because "the person has not chosen yet" cannot be read back from browser storage: it is
  * kept per origin (the port is part of it), and every settings write stores the whole object. A value
@@ -13,10 +14,10 @@
  *
  * Split out of `main.js` so it can be tested without the scene.
  */
-export const OPEN_MODES = ['auto', 'app', 'copy', 'terminal']
+export const OPEN_MODES = ['auto', 'app', 'copy', 'terminal', 'foreground']
 
 /**
- * `terminal` needs a launcher, and a stored choice outlives the server that had one, so it falls back
+ * `terminal` and `foreground` need a launcher, and a stored choice outlives the server that had one, so they fall back
  * to `copy` rather than to a button that answers with an error. Anything unrecognised is `app`, so an
  * old or hand-edited setting can never leave Open with no meaning.
  */
@@ -25,6 +26,7 @@ export function resolveOpenMode(setting, launcher) {
   if (setting === 'auto') return hasLauncher ? 'terminal' : 'app'
   if (setting === 'copy') return 'copy'
   if (setting === 'terminal') return hasLauncher ? 'terminal' : 'copy'
+  if (setting === 'foreground') return hasLauncher ? 'foreground' : 'copy'
   return 'app'
 }
 
@@ -36,4 +38,13 @@ export function resolveOpenMode(setting, launcher) {
 export function launchNote(result, label) {
   if (!result?.already) return `Opened in ${label}`
   return result.via === 'claude' ? 'Already running: Claude Code has that session open' : `Already open in ${label}`
+}
+
+/**
+ * What the person is told after "Bring cmux to the front". Nothing was opened or started, so it says only
+ * that cmux is forward. For a new-thread button it adds that the thread is still theirs to start there
+ * (`newThread` is the tool's name, or empty for Open).
+ */
+export function foregroundNote(label, newThread = '') {
+  return newThread ? `Brought ${label} to the front. Start the new ${newThread} thread there` : `Brought ${label} to the front`
 }

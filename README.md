@@ -84,6 +84,11 @@ links. On a machine without them, open Settings → Sessions → **Open sessions
   inside cmux; if not, link `/Applications/cmux.app/Contents/Resources/bin/cmux` into a folder on your `PATH`.
   Until it is on, a stored "Terminal" choice copies the command instead.
 
+- **Bring cmux to the front**: Open and the new-thread buttons do one thing, bring the cmux app to the front (macOS),
+  and nothing else. No resume, no new workspace, no check for a running session. It is for when your sessions
+  already run in cmux and you only want to get to them; cmux cannot be told which workspace to show, so you pick
+  it there. The Open button reads "Show". It needs the launcher on, like Terminal, and copies instead without it.
+
 cmux is the only launcher for now. Any other terminal (Terminal.app, iTerm2, Ghostty, tmux) works through the
 copy option. The command is POSIX shell, so this is for macOS and Linux. Resuming in a terminal does not import a
 terminal-only Claude session into the desktop app, so the import warning does not apply.

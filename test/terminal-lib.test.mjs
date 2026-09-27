@@ -323,6 +323,17 @@ test('bringing the app forward runs the exact argument list, with no shell', asy
   assert.ok(!seen[0].options.shell)
 })
 
+test('bringing the app forward says whether it worked, so the one caller that cares can tell', async () => {
+  assert.deepEqual(await runForeground(['open', '-a', 'cmux'], (file, args, options, done) => done(null, '', '')), { ok: true })
+  assert.deepEqual(await runForeground(['open', '-a', 'cmux'], (file, args, options, done) => done(new Error('Unable to find application'), '', '')), { ok: false })
+  assert.deepEqual(
+    await runForeground(['open', '-a', 'cmux'], () => {
+      throw new Error('execFile itself threw')
+    }),
+    { ok: false }
+  )
+})
+
 test('a launcher that throws when it is started is a failure too, not a crash', async () => {
   const result = await runLauncher(['cmux'], () => {
     throw new Error('boom')

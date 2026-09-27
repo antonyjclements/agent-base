@@ -244,6 +244,12 @@ export const setForegrounder = (fn) => {
   foregroundTerminal = fn
 }
 
+/**
+ * The one fixed sentence a failed "bring cmux to the front" is told in. The runner's own output is never
+ * passed on: it can name where an application lives.
+ */
+const FOREGROUND_FAILED = 'cmux could not be brought to the front.'
+
 /** Best-effort, after cmux has (or already had) the session: never lets a foreground problem change the answer already decided. */
 async function tryForeground(launcherId) {
   const argv = foregroundArgv(launcherId)
@@ -583,12 +589,13 @@ export async function apiMiddleware(req, res, next) {
     }
 
     /**
-     * The terminal hand-off (AC13). Three fixed routes, and the same rule as above: a thread by id
+     * The terminal hand-off (AC13). Four fixed routes, and the same rule as above: a thread by id
      * or a folder the scan knows, and nothing else from the request.
      *
      * `terminal-launcher` tells the page whether the environment has turned a launcher on.
      * `terminal-command` returns the line to paste, and starts nothing. `terminal-launch` runs the
      * launcher once, only when it is on, and reports in fixed words whether it worked.
+     * `terminal-foreground` only raises cmux, and is described where it is handled.
      */
     if (url.pathname === '/api/terminal-launcher' && req.method === 'GET') {
       return send(res, 200, { launcher: launcherFromEnv() })
@@ -598,6 +605,33 @@ export async function apiMiddleware(req, res, next) {
       const target = await terminalTarget(asObject(await readJsonBody(req)))
       if (!target.ok) return send(res, target.status, { ok: false, error: target.error })
       return send(res, 200, { ok: true, command: pasteLine(target) })
+    }
+
+    /**
+     * `terminal-foreground`: the "Bring cmux to the front" choice, for someone whose sessions already run
+     * in cmux and who only wants to get to it. A fixed action with nothing to choose: whatever the body
+     * says is read and ignored, and it runs the one argument list `foregroundArgv` gives, once. It needs
+     * the launcher on, like `terminal-launch`, and it resumes, starts and asks about nothing.
+     */
+    if (url.pathname === '/api/terminal-foreground' && req.method === 'POST') {
+      await readJsonBody(req)
+      const launcher = launcherFromEnv()
+      if (!launcher) {
+        return send(res, 400, {
+          ok: false,
+          error: 'The terminal launcher is not enabled. Start Moon Base with MOON_BASE_TERMINAL=cmux, from a cmux terminal.',
+        })
+      }
+      const argv = foregroundArgv(launcher.id)
+      if (!argv) return send(res, 400, { ok: false, error: 'Bringing cmux to the front works on macOS only' })
+      let worked = true
+      try {
+        const result = await foregroundTerminal(argv)
+        worked = !(result && result.ok === false)
+      } catch {
+        worked = false
+      }
+      return worked ? send(res, 200, { ok: true }) : send(res, 400, { ok: false, error: FOREGROUND_FAILED })
     }
 
     if (url.pathname === '/api/terminal-launch' && req.method === 'POST') {
