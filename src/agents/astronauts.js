@@ -88,6 +88,53 @@ const DRIFT_ARRIVE = 0.9
 /** Seconds to walk the ramp from the airlock to the ground. */
 const RAMP_TIME = 1.7
 const DRIFT_PACE = 0.55
+
+/**
+ * Idle quirks: little solo beats a settled, idle astronaut plays instead of just pottering —
+ * a stretch, a look at something in its hands, a few press-ups, or lying back to watch the
+ * sky (at night) or catch some sun (by day). Rolled in place of the next wander leg, so it
+ * costs nothing that a drifting agent was not already going to spend standing around; the
+ * baked clips carry all of it.
+ *
+ * `clips` is the phase chain a quirk plays through in order; a phase with no fixed `legs`
+ * entry holds for a random span from `hold` before moving on (or, for the last phase,
+ * before the quirk ends and wandering resumes). `nightOnly`/`dayOnly` quirks are left out of
+ * the random pick whenever the sky doesn't suit them.
+ *
+ * `dance` and `recess` carry no weight, so `pickQuirk` never rolls them on its own — they
+ * only ever start from a colony-wide bell (`startDanceParty`/`startRecess`, below), which
+ * assigns them directly.
+ */
+const QUIRK_CHANCE = 0.22
+const QUIRK_WEIGHT = { stretch: 5, inspect: 3, pushups: 2, stargaze: 2, sunbathe: 2 }
+const QUIRK = {
+  stretch: { clips: ['idleAlt'], hold: [4, 8] },
+  inspect: { clips: ['interact'], hold: [1.8, 3] },
+  pushups: { clips: ['pushups'], hold: [3, 6] },
+  stargaze: { clips: ['lieDown', 'lie', 'lieUp'], legs: [3.1, null, 2.4], hold: [7, 14], nightOnly: true },
+  sunbathe: { clips: ['lieDown', 'lie', 'lieUp'], legs: [3.1, null, 2.4], hold: [7, 14], dayOnly: true },
+  // Bell-only — see the doc comment above.
+  dance: { clips: ['cheer', 'wave', 'cheer', 'wave', 'cheer', 'wave'], hold: [1, 1.6] },
+  recess: { clips: ['interact', 'wave', 'interact', 'wave'], hold: [2, 3] },
+}
+const QUIRK_NAMES = Object.keys(QUIRK)
+
+const randRange = ([a, b]) => a + Math.random() * (b - a)
+
+/** A weighted pick among quirks currently allowed — day/night gates, and a bell-only quirk
+ * (no entry in `QUIRK_WEIGHT`) never enters the pool at all. */
+function pickQuirk(night) {
+  const pool = []
+  for (const name of QUIRK_NAMES) {
+    const spec = QUIRK[name]
+    if (spec.nightOnly && night < 0.55) continue
+    if (spec.dayOnly && night >= 0.2) continue
+    const weight = QUIRK_WEIGHT[name] || 0
+    for (let i = 0; i < weight; i++) pool.push(name)
+  }
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
 /**
  * How close to its site counts as arrived. Deliberately derived from SEPARATION and larger
  * than it: if an astronaut had to get closer than its neighbours will let it, one standing
@@ -186,6 +233,11 @@ export class Astronauts {
     this._queue = []
     this._queueTimer = 0
     this._queueEvery = 0.3
+    // Who is hovered right now, so `setHover` can tell a fresh hover from the same pointer
+    // move repeating over an agent it is already resting on. The last `update`'s elapsed
+    // time, so a click handler outside the frame loop can time a reaction off it.
+    this._hoveredId = null
+    this._elapsed = 0
   }
 
   // ── construction ────────────────────────────────────────────────────────────────────
@@ -612,7 +664,6 @@ export class Astronauts {
       suit: suitFor(LOOK, entry.thread?.harness, hash(entry.id) >>> 3),
       eye: new THREE.Color(1, 1, 1),
       trim: new THREE.Color(0xffffff),
-      hop: 0,
       // Ground tracking. `groundAt` is the height last sampled and `groundY` the eased value
     // actually stood on; both start null so the first frame snaps instead of easing up.
       groundAt: walksOut ? airlock.y : null,
@@ -651,6 +702,15 @@ export class Astronauts {
       checkStart: -1,
       checkProp: null,
       checkT: -1,
+      // The idle quirk: which one, how far through its phase chain, and when the current
+      // phase ends. See `_startQuirk`/`_stepQuirk`.
+      quirk: null,
+      quirkPhase: 0,
+      quirkPhaseEnd: 0,
+      // Seconds left of a hover's quick wink; seconds-elapsed deadline of a click's little
+      // hop. See `setHover`/`greet` and `animateFace`.
+      hoverWink: 0,
+      reactUntil: 0,
       scale: walksOut ? 0 : 1, // pops up out of the ship, or was already standing there
       alive: true,
       path: null,
@@ -700,6 +760,9 @@ export class Astronauts {
   _applyStatus(agent, status) {
     const look = AGENT_LOOK[status] || AGENT_LOOK.idle
     agent.checkStart = -1
+    // Any quirk in progress belonged to being idle; a thread that just started running or
+    // blocked has more pressing things for its astronaut to play than a stretch or a nap.
+    agent.quirk = null
     agent.trim.set(look.trim)
     agent.eye.setRGB(look.eye[0], look.eye[1], look.eye[2])
     agent.loop = FACE_LOOPS[status] || null
@@ -756,10 +819,13 @@ export class Astronauts {
 
   // ── per-frame simulation ────────────────────────────────────────────────────────────
 
-  update(dt, elapsed) {
+  update(dt, elapsed, night = 0) {
     const reduced = this.settings.get('reducedMotion')
     const anim = reduced ? 0.35 : 1
     let write = 0
+    // `greet()` fires from a click handler outside this loop and wants to know roughly
+    // where the clock is now; last frame's elapsed is close enough for a one-shot hop.
+    this._elapsed = elapsed
 
     this._rebuildBuckets()
     this._routeBudget = PATH_BUDGET
@@ -772,8 +838,8 @@ export class Astronauts {
         continue
       }
       agent.stateAge += dt
-      this._step(agent, dt, elapsed, anim)
-      this._animate(agent, dt, anim)
+      this._step(agent, dt, elapsed, anim, night)
+      this._animate(agent, dt, anim, elapsed)
       animateFace(agent, dt, anim)
 
       if (agent.state === 'gone') {
@@ -860,7 +926,7 @@ export class Astronauts {
     return out.set(wp.x, 0, wp.z)
   }
 
-  _step(agent, dt, elapsed, anim) {
+  _step(agent, dt, elapsed, anim, night = 0) {
     const fromX = agent.pos.x
     const fromZ = agent.pos.z
     agent.blocked = false
@@ -929,7 +995,7 @@ export class Astronauts {
       case 'at-site': {
         if (agent.status === 'idle') {
           // Idlers potter around their plot, and `_drift` owns their velocity outright.
-          this._drift(agent, dt, elapsed)
+          this._drift(agent, dt, elapsed, night)
         } else if (agent.status === 'working' && agent.anchor) {
           this._workRound(agent, dt, elapsed)
         } else {
@@ -993,7 +1059,7 @@ export class Astronauts {
       agent.groundY =
         agent.groundY === null ? agent.groundAt : THREE.MathUtils.damp(agent.groundY, agent.groundAt, 14, dt)
     }
-    agent.pos.y = (agent.groundY || 0) + agent.hop
+    agent.pos.y = agent.groundY || 0
   }
 
   /**
@@ -1143,9 +1209,21 @@ export class Astronauts {
   }
 
   /** A slow wander inside the plot, re-targeted every few seconds. */
-  _drift(agent, dt, elapsed) {
+  _drift(agent, dt, elapsed, night = 0) {
+    if (agent.quirk) {
+      this._stepQuirk(agent, elapsed)
+      agent.vel.set(0, 0, 0)
+      this._settle(agent, dt)
+      return
+    }
     if (elapsed > agent.wanderAt) {
       agent.wanderAt = elapsed + 3 + Math.random() * 5
+      // Now and then, instead of pottering somewhere else, do something on the spot —
+      // see `QUIRK`. `_startQuirk` takes over `wanderAt` itself while one is running.
+      if (Math.random() < QUIRK_CHANCE) {
+        this._startQuirk(agent, elapsed, night)
+        return
+      }
       // Stay put rather than walk at a wall — or at somebody. A few candidates and the
       // first that is neither inside a building nor on top of a neighbour wins: separation
       // can push a crowd apart, but it cannot stop one forming if everybody keeps choosing
@@ -1182,6 +1260,62 @@ export class Astronauts {
     // still until the next wander is due, only yielding to anyone standing inside us.
     agent.vel.set(0, 0, 0)
     this._settle(agent, dt)
+  }
+
+  /** Begin a quirk: its first phase, and a fresh site to wander to once it is done. */
+  _startQuirk(agent, elapsed, night) {
+    const name = pickQuirk(night)
+    const spec = QUIRK[name]
+    agent.quirk = name
+    agent.quirkPhase = 0
+    agent.quirkPhaseEnd = elapsed + (spec.legs?.[0] ?? randRange(spec.hold))
+  }
+
+  /** Advance a running quirk's phase chain, and end it once the last phase runs out. */
+  _stepQuirk(agent, elapsed) {
+    if (elapsed < agent.quirkPhaseEnd) return
+    const spec = QUIRK[agent.quirk]
+    agent.quirkPhase++
+    if (agent.quirkPhase >= spec.clips.length) {
+      agent.quirk = null
+      // Straight back into pottering, not another roll of the dice for a second quirk.
+      agent.wanderAt = elapsed + 0.4 + Math.random()
+      return
+    }
+    const leg = spec.legs?.[agent.quirkPhase]
+    agent.quirkPhaseEnd = elapsed + (leg ?? randRange(spec.hold))
+  }
+
+  /**
+   * A bell for the whole colony: every settled, idle bot is assigned `name` directly —
+   * bypassing `pickQuirk` and the per-agent roll entirely — each after its own short random
+   * delay so the crowd joins in as a ripple rather than snapping on in lockstep. Phase -1 is
+   * that delay: `_stepQuirk` already advances any phase toward 0 the same way regardless of
+   * where it started, so nothing else needs to know a bell-started quirk looks different for
+   * its first moment than a randomly rolled one. Returns how many bots joined in, so the
+   * caller can say so (or say nobody was free to).
+   */
+  _ringBell(name, spread) {
+    const elapsed = this._elapsed
+    let joined = 0
+    for (const agent of this.agents) {
+      if (agent.status !== 'idle' || agent.state !== 'at-site') continue
+      agent.quirk = name
+      agent.quirkPhase = -1
+      agent.quirkPhaseEnd = elapsed + Math.random() * spread
+      joined++
+    }
+    return joined
+  }
+
+  /** Ring the bell for a dance party: every idle bot on the surface joins in. */
+  startDanceParty() {
+    return this._ringBell('dance', 0.6)
+  }
+
+  /** Ring the bell for a break: every idle bot pauses together for a moment. */
+  startRecess() {
+    return this._ringBell('recess', 0.5)
   }
 
   /**
@@ -1371,7 +1505,6 @@ export class Astronauts {
    * the spot, which no single clip can express.
    */
   _sitePose(agent, dt, elapsed, anim) {
-    agent.hop = 0
     if (agent.status === 'celebrating') agent.targetYaw += dt * 1.4 * anim
   }
 
@@ -1385,7 +1518,7 @@ export class Astronauts {
    * cannot moonwalk — the same rule the old hand-written cycle followed, applied to a real
    * one instead.
    */
-  _animate(agent, dt, anim) {
+  _animate(agent, dt, anim, elapsed) {
     const rig = this.rig
     if (!rig) return
 
@@ -1420,8 +1553,14 @@ export class Astronauts {
         case 'sleeping':
           key = agent.clipKey === 'sit' ? 'sit' : 'sitDown'
           break
+        // A click's hop (see `greet`, which never starts one over a quirk already under
+        // way — nothing here blends between clips, so the two would otherwise pop).
         default:
-          key = 'idle'
+          if (agent.reactUntil > elapsed) key = 'jump'
+          // Phase -1 is a bell-started quirk's staggered delay before it actually begins —
+          // see `_ringBell` — so it plays as plain idle until its first real phase starts.
+          else if (agent.quirk) key = agent.quirkPhase >= 0 ? QUIRK[agent.quirk].clips[agent.quirkPhase] : 'idle'
+          else key = 'idle'
       }
     }
 
@@ -1670,7 +1809,16 @@ export class Astronauts {
 
   setHover(agent) {
     this.hoverRing.visible = Boolean(agent)
-    if (agent) this.hoverRing.position.set(agent.pos.x, agent.pos.y + 0.03, agent.pos.z)
+    if (agent) {
+      this.hoverRing.position.set(agent.pos.x, agent.pos.y + 0.03, agent.pos.z)
+      // A quick wink the moment the pointer settles on somebody new — once per hover, not
+      // on every move while it stays there, and only over a settled, idle agent, whose
+      // face is not already saying something else.
+      if (agent.id !== this._hoveredId && agent.status === 'idle' && agent.state === 'at-site') {
+        agent.hoverWink = 0.35
+      }
+    }
+    this._hoveredId = agent?.id ?? null
   }
 
   setSelected(agent) {
@@ -1699,7 +1847,17 @@ export class Astronauts {
     if (!agent) return
     agent.faceFrame = FACE.happy
     agent.blinkAt = 1.5
-    agent.hop = 0.25
+  }
+
+  /**
+   * A little hop of acknowledgement when a settled, idle agent is freshly clicked. Never
+   * over a status clip that is already saying something (working, blocked, waiting…),
+   * and never over a quirk mid-flourish — nothing here blends between clips, so cutting a
+   * lying-down astronaut straight to a jump would pop rather than delight.
+   */
+  greet(agent) {
+    if (!agent || agent.status !== 'idle' || agent.state !== 'at-site' || agent.quirk) return
+    agent.reactUntil = this._elapsed + 1.2
   }
 
   dispose() {

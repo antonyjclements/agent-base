@@ -141,6 +141,18 @@ const actions = {
     select(agent.id, { fly: true })
   },
 
+  /** A flash mob: every idle bot on the surface drops what it's doing and joins in. */
+  danceParty: () => {
+    const n = colony.astronauts.startDanceParty()
+    hud.hint(n ? `${n} bot${n === 1 ? '' : 's'} hit the dance floor` : 'Nobody free to dance right now')
+  },
+
+  /** Ring the bell: every idle bot pauses together for a break. */
+  ringBell: () => {
+    const n = colony.astronauts.startRecess()
+    hud.hint(n ? `${n} bot${n === 1 ? '' : 's'} taking a break` : 'Nobody free for a break right now')
+  },
+
   focusProject: (name) => {
     const plot = colony.plots.get(name)
     if (!plot) return
@@ -349,6 +361,7 @@ function select(id, { fly = false } = {}) {
     if (n === lastPhrase) n = (n % 6) + 1
     lastPhrase = n
     ambience.play(`select-${n}`, { x: agent.pos.x, y: agent.pos.y + 0.8, z: agent.pos.z, gain: 0.9 })
+    colony.astronauts.greet(agent)
   }
   // Picking somebody is also picking the zone they are standing on: the sidebar follows.
   if (thread?.project && colony.plots.has(thread.project)) selectedProject = thread.project
@@ -846,6 +859,14 @@ window.addEventListener('keydown', (e) => {
     case 'M':
       settings.set('sound', !settings.get('sound'))
       hud.hint(settings.get('sound') ? 'Sound on' : 'Muted')
+      break
+    case 'b':
+    case 'B':
+      actions.ringBell()
+      break
+    case 'd':
+    case 'D':
+      actions.danceParty()
       break
     case 'Tab':
       e.preventDefault()

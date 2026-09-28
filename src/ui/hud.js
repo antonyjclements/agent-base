@@ -48,6 +48,8 @@ const ICON = {
   orbit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10.2" ry="4.6" transform="rotate(-24 12 12)"/><circle cx="21" cy="8.2" r="1.5" fill="currentColor" stroke="none"/></svg>`,
   sound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></svg>`,
   soundOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`,
+  bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16v-4.5a6 6 0 0 1 12 0V16l1.6 2.3a.6.6 0 0 1-.5 1H4.9a.6.6 0 0 1-.5-1z"/><path d="M10.2 19.6a1.9 1.9 0 0 0 3.6 0"/></svg>`,
+  party: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v3.4M12 18v3.4M2.5 12h3.4M18 12h3.4M5.4 5.4l2.4 2.4M16.2 16.2l2.4 2.4M18.6 5.4l-2.4 2.4M7.8 16.2l-2.4 2.4"/></svg>`,
 }
 
 const STAT_DEFS = [
@@ -464,6 +466,8 @@ export class Hud {
     on('#btn-orbit', 'click', () => this.setOrbit(this.actions.toggleOrbit?.()))
     on('#btn-planet', 'click', () => this.actions.cyclePlanet?.())
     on('#btn-time', 'click', () => this.actions.cycleTime?.())
+    on('#btn-bell', 'click', () => this.actions.ringBell?.())
+    on('#btn-party', 'click', () => this.actions.danceParty?.())
     on('#btn-sound', 'click', () => this.settings.set('sound', !this.settings.get('sound')))
     on('#btn-open', 'click', () => this.actions.openThread?.())
     on('#btn-viewed', 'click', () => this.actions.markViewed?.())
@@ -1211,6 +1215,9 @@ const TEMPLATE = `
   <button class="btn icon" id="btn-planet" title="Change planet (Tab)">${ICON.globe}</button>
   <button class="btn icon" id="btn-time" title="Change the time of day (L)">${ICON.sun}</button>
   <div class="sep"></div>
+  <button class="btn icon" id="btn-bell" title="Ring the bell — every idle bot takes a break (B)">${ICON.bell}</button>
+  <button class="btn icon" id="btn-party" title="Dance party — every idle bot joins in (D)">${ICON.party}</button>
+  <div class="sep"></div>
   <button class="btn icon" id="btn-sound" title="Mute (M)" aria-pressed="true">${ICON.sound}</button>
 </div>
 
@@ -1268,6 +1275,8 @@ const TEMPLATE = `
         <div class="k"><span>Change planet</span><kbd>Tab</kbd></div>
         <div class="k"><span>Time of day</span><kbd>L</kbd></div>
         <div class="k"><span>Mute</span><kbd>M</kbd></div>
+        <div class="k"><span>Ring the bell</span><kbd>B</kbd></div>
+        <div class="k"><span>Dance party</span><kbd>D</kbd></div>
         <div class="k"><span>Deselect</span><kbd>Esc</kbd></div>
         <div class="k"><span>This sheet</span><kbd>?</kbd></div>
       </div>

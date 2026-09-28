@@ -60,6 +60,11 @@ const CLIP = {
   hit: { name: 'Hit_A', loop: true },
   spawn: { name: 'Spawn_Ground', loop: false },
   interact: { name: 'Interact', loop: true },
+  // Idle quirks: pressing on with something, or lying back to watch the sky for a while.
+  pushups: { name: 'Push_Ups', loop: true },
+  lieDown: { name: 'Lie_Down', loop: false },
+  lie: { name: 'Lie_Idle', loop: true },
+  lieUp: { name: 'Lie_StandUp', loop: false },
   // The phone check: the idle, with the left arm brought up to hold something in front of
   // the visor. Raised over a short one-shot, held on a loop, lowered over another.
   phoneUp: { name: 'Idle_A', loop: false, tweak: 'phoneUp', frames: [0, 15] },

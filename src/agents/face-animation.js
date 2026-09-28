@@ -10,6 +10,7 @@ const WALK_BLINK = {
 export function animateFace(agent, dt, anim = 1) {
   agent.faceTimer += dt
   agent.blinkAt -= dt
+  if (agent.hoverWink > 0) agent.hoverWink -= dt
 
   if (agent.state === 'spawning' && agent.stateAge < 0.8) {
     agent.faceFrame = FACE.boot
@@ -17,6 +18,11 @@ export function animateFace(agent, dt, anim = 1) {
   }
   if (agent.state === 'leaving') {
     agent.faceFrame = agent.stateAge % 2 < 1.4 ? FACE.happy : FACE.wink
+    return
+  }
+  // A hover's quick wink pre-empts everything below, however briefly.
+  if (agent.hoverWink > 0) {
+    agent.faceFrame = FACE.wink
     return
   }
 
