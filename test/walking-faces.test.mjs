@@ -69,6 +69,24 @@ test('closed happy eyes preserve their whistling mouth during blinks', () => {
   }
 })
 
+test('a hover wink pre-empts the usual face and then gives it back; boot and goodbye still come first', () => {
+  const a = walker({ state: 'at-site', status: 'idle', hoverWink: 0.05 })
+  face(a, 1 / 60)
+  assert.equal(a.faceFrame, FACE.wink)
+  assert.ok(a.hoverWink > 0)
+  face(a, 1) // well past the wink's own length
+  assert.notEqual(a.faceFrame, FACE.wink)
+  assert.ok(a.hoverWink <= 0)
+
+  const booting = walker({ state: 'spawning', stateAge: 0.1, hoverWink: 1 })
+  face(booting, 1 / 60)
+  assert.equal(booting.faceFrame, FACE.boot)
+
+  const leaving = walker({ state: 'leaving', stateAge: 0, hoverWink: 1 })
+  face(leaving, 1 / 60)
+  assert.equal(leaving.faceFrame, FACE.happy)
+})
+
 test('walking sequence includes every mouth position and smile, all within the atlas', () => {
   const frames = new Set()
   for (let t = 0; t < 34; t += 0.05) frames.add(walkingFaceAt(t, 0))

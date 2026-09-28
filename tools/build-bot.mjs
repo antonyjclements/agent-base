@@ -27,7 +27,11 @@ const OUT = 'public/assets/bot.glb'
 const WANTED = {
   'Rig_Medium_General.glb': ['Idle_A', 'Idle_B', 'Interact', 'Hit_A', 'Spawn_Ground'],
   'Rig_Medium_MovementBasic.glb': ['Walking_A', 'Running_A', 'Jump_Full_Short'],
-  'Rig_Medium_Simulation.glb': ['Cheering', 'Waving', 'Sit_Floor_Down', 'Sit_Floor_Idle', 'Sit_Floor_StandUp'],
+  'Rig_Medium_Simulation.glb': [
+    'Cheering', 'Waving', 'Sit_Floor_Down', 'Sit_Floor_Idle', 'Sit_Floor_StandUp',
+    // The idle quirks: lying back to watch the sky, and a few press-ups to pass the time.
+    'Lie_Down', 'Lie_Idle', 'Lie_StandUp', 'Push_Ups',
+  ],
   'Rig_Medium_Tools.glb': ['Hammering', 'Working_A'],
 }
 

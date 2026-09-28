@@ -144,6 +144,24 @@ const SHADOW_EXTENT = 30
  */
 const SHADOW_SNAP = 2
 
+/** How many trailing points draw a shooting star's streak. */
+const SHOOTING_STAR_TRAIL = 10
+/** Same radius the star field sits at, so a streak reads as part of it rather than in front. */
+const SHOOTING_STAR_RADIUS = 320
+
+/**
+ * A point on the upper sky, uniform on the sphere but biased well above the horizon —
+ * unlike the star field itself, which is allowed close to it. A streak that dipped toward
+ * the skyline would read as something on the ground, not something crossing the sky.
+ */
+function randomSkyPoint(out) {
+  const u = Math.random() * 2 - 1
+  const theta = Math.random() * Math.PI * 2
+  const r = Math.sqrt(1 - u * u)
+  const y = Math.abs(u) * 0.8 + 0.2
+  return out.set(Math.cos(theta) * r, y, Math.sin(theta) * r).multiplyScalar(SHOOTING_STAR_RADIUS)
+}
+
 export class Sky {
   constructor(scene, settings, renderer) {
     this.scene = scene
@@ -161,6 +179,7 @@ export class Sky {
     this._buildDome()
     this._buildLights()
     this._buildStars()
+    this._buildShootingStar()
     this._buildCompanion()
 
     this._buildEnvironment()
@@ -353,6 +372,115 @@ export class Sky {
     this.group.add(this.stars)
   }
 
+  /**
+   * A rare shooting star: gone in about a second, on its own clock, needing nothing on the
+   * ground to have gone wrong or right first. Drawn the same way the star field is — a
+   * handful of camera-relative points riding with the camera — just fewer of them, laid
+   * out behind a moving head rather than fixed, and fading along the trail rather than
+   * twinkling in place.
+   */
+  _buildShootingStar() {
+    const count = SHOOTING_STAR_TRAIL
+    const positions = new Float32Array(count * 3)
+    const sizes = new Float32Array(count)
+    const fade = new Float32Array(count)
+    for (let i = 0; i < count; i++) fade[i] = 1 - i / count
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
+    geo.setAttribute('aFade', new THREE.BufferAttribute(fade, 1))
+
+    this.shootingUniforms = { uOpacity: { value: 0 } }
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.shootingUniforms,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      vertexShader: /* glsl */ `
+        attribute float aSize;
+        attribute float aFade;
+        varying float vFade;
+        void main() {
+          vFade = aFade;
+          vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+          gl_PointSize = aSize;
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying float vFade;
+        uniform float uOpacity;
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float a = smoothstep( 0.5, 0.05, length( d ) );
+          gl_FragColor = vec4( vec3( 0.92, 0.96, 1.0 ), a * vFade * uOpacity );
+        }
+      `,
+    })
+
+    this.shootingStar = new THREE.Points(geo, mat)
+    this.shootingStar.renderOrder = -998
+    this.shootingStar.frustumCulled = false
+    this.shootingStar.visible = false
+    this.group.add(this.shootingStar)
+
+    // Scratch, so a streak crossing the sky allocates nothing per frame.
+    this._shootFrom = new THREE.Vector3()
+    this._shootDelta = new THREE.Vector3()
+    this._shootDir = new THREE.Vector3()
+    this._shootHead = new THREE.Vector3()
+    this._shootBack = new THREE.Vector3()
+    this._shootAt = 6 + Math.random() * 10 // first roll opportunity, in elapsed seconds
+    this._shootUntil = 0
+    this._shootDuration = 1
+  }
+
+  /**
+   * Roll for a new streak, or advance one already under way. Called every frame regardless
+   * of the time-of-day branch `update()` takes below, since those return early.
+   */
+  _updateShootingStar(elapsed) {
+    if (elapsed >= this._shootUntil) {
+      this.shootingStar.visible = false
+      if (elapsed < this._shootAt) return
+      // Whether or not this attempt actually fires, the next opportunity is not for a
+      // while — or the clock would keep re-rolling every frame through a bright afternoon.
+      this._shootAt = elapsed + 8 + Math.random() * 14
+      const canShoot = this.stars.visible && !this.settings.get('reducedMotion')
+      if (!canShoot || Math.random() > 0.1) return
+      this._startShootingStar(elapsed)
+      return
+    }
+
+    const t = 1 - (this._shootUntil - elapsed) / this._shootDuration
+    const pos = this.shootingStar.geometry.attributes.position
+    const size = this.shootingStar.geometry.attributes.aSize
+    const head = this._shootHead.copy(this._shootFrom).addScaledVector(this._shootDelta, t)
+    for (let i = 0; i < SHOOTING_STAR_TRAIL; i++) {
+      const back = this._shootBack.copy(head).addScaledVector(this._shootDir, -i * 3.5)
+      pos.setXYZ(i, back.x, back.y, back.z)
+      size.setX(i, Math.max(0.4, 3.4 - i * 0.32))
+    }
+    pos.needsUpdate = true
+    size.needsUpdate = true
+    // Flashes in, holds, fades out — never just snaps on or off at either end of its run.
+    this.shootingUniforms.uOpacity.value = Math.min(1, t * 8) * Math.min(1, (1 - t) * 5)
+    this.shootingStar.visible = true
+  }
+
+  /** Two random points well above the horizon, and a straight chord between them. */
+  _startShootingStar(elapsed) {
+    randomSkyPoint(this._shootFrom)
+    randomSkyPoint(this._shootDelta)
+    this._shootDelta.sub(this._shootFrom)
+    this._shootDir.copy(this._shootDelta).normalize()
+    this._shootDuration = 0.7 + Math.random() * 0.5
+    this._shootUntil = elapsed + this._shootDuration
+  }
+
   /** The big body hanging in the sky — Earth from the Moon, a moon from Terra, and so on. */
   _buildCompanion() {
     this.companion = new THREE.Group()
@@ -528,9 +656,12 @@ export class Sky {
     // Dome and stars ride with the camera so they read as infinitely far away.
     this.dome.position.copy(camera.position)
     this.stars.position.copy(camera.position)
+    this.shootingStar.position.copy(camera.position)
     this.companion.position.copy(camera.position).add(this._companionOffset())
     this.companion.lookAt(camera.position)
     this.starUniforms.uTwinkle.value = elapsed
+    // Always run, whichever time-of-day branch below this returns early with.
+    this._updateShootingStar(elapsed)
     // Clouds drift, and a drifting sky is a moving environment map — but only slowly, so
     // the prefilter is refreshed on its own throttle rather than every frame.
     if (this.domeUniforms.uCloudAmount.value > 0) {
@@ -574,6 +705,8 @@ export class Sky {
     this.dome.material.dispose()
     this.stars.geometry.dispose()
     this.stars.material.dispose()
+    this.shootingStar.geometry.dispose()
+    this.shootingStar.material.dispose()
     this.companionBody.geometry.dispose()
     this.companionBody.material.dispose()
     this.companionHalo.geometry.dispose()
