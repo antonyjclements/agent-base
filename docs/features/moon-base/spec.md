@@ -2,7 +2,7 @@
 title: Moon Base
 status: active
 created: 2026-09-25
-updated: 2026-09-26
+updated: 2026-10-11
 tags:
   - visualization
   - claude-code
@@ -102,8 +102,8 @@ Coverage marker convention will follow `docs/standards/` once standards exist.
 
 - **AC1. Both tools discovered.** Given sessions exist for both tools, each appears as exactly one bot with a unique, prefixed ID (`claude-code:<uuid>`, `codex:<uuid>`). Malformed session files are skipped without failing the scan.
 - **AC2. Status precedence.** A session's shown state follows: errored, then running, then PR merged, then awaiting input, then dormant (more than three days of inactivity), then idle. Dormant and idle bots carry no badge.
-- **AC3. Read-only toward session data.** Moon Base never modifies, archives or deletes a tool's session data. Its own state file is the only file it writes routinely. The only other permitted writes are hook entries in tool configs, and only after the explicit confirmation in AC5.
-- **AC4. Local-only.** The server binds to loopback by default and validates Host and Origin. There are no external network calls, telemetry or accounts.
+- **AC3. Read-only toward session data.** Moon Base never modifies, archives or deletes a tool's session data. Its own state file is the only server file it writes routinely. Browser settings and the optional weather cache are stored separately in localStorage. The only other permitted writes are hook entries in tool configs, and only after the explicit confirmation in AC5.
+- **AC4. Local-only.** The server binds to loopback by default and validates Host and Origin. Session data stays local, with no telemetry or Moon Base account. Explicit city/location setup and Live actual weather are the only external network exception: fixed Open-Meteo endpoints receive a city query or coordinates and ordinary request metadata, never session contents, titles, IDs, repo paths, or colony layout. Off/manual/simulated modes and configured Live seasonal make no weather calls. See [Weather and Seasons](../weather-seasons/spec.md).
 - **AC5. Hooks are opt-in and reversible.** Nothing edits a tool config during install, first run or app start. The install command shows the exact per-tool diff, requires confirmation, and writes only marked Moon Base entries. The uninstall command removes only those entries. A declined or failed install leaves configs byte-for-byte unchanged. Existing user hooks and Codex's existing `notify` setting are never modified, and Codex hook trust is never bypassed.
 - **AC6. Live status.** With hooks installed, or with another live source reporting (AC14), transitions show on the map within about three seconds (the page's poll interval while a live source is reporting), per tool:
   - Claude Code: running when a prompt is submitted or tools are executing, awaiting input on a permission or input notification, finished when the turn stops, and errored when the turn ends on an API failure.

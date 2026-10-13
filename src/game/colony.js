@@ -1,3 +1,4 @@
+import { SEASONS } from '../world/environment.js'
 import { SceneryReflections } from '../world/reflections.js'
 import * as THREE from 'three'
 import { PLANETS, createTerrain, createScatter, terrainHeight } from '../world/planet.js'
@@ -1010,6 +1011,37 @@ export class Colony {
     return site
   }
 
+  setEnvironment(environment) { this.environment = environment }
+
+  _applyEnvironment() {
+    const e = this.environment
+    this.sky.setEnvironment(e)
+    const signature = [e?.enabled, e?.unavailable, e?.season, e?.seasonProgress?.toFixed(3), e?.snowCover?.toFixed(3), e?.reading?.windSpeedMs, e?.reading?.windDirectionDeg].join(':')
+    if (signature === this._seasonSignature && this._seasonTerrain === this.terrain && this._seasonScatter === this.scatterGroup && this._seasonGrass === this.grass) return
+    this._seasonSignature = signature; this._seasonTerrain = this.terrain; this._seasonScatter = this.scatterGroup; this._seasonGrass = this.grass
+    this._seasonTint ??= new THREE.Color()
+    this._seasonNext ??= new THREE.Color()
+    this._seasonBases ??= new WeakMap()
+    const colors = [0x9dbf83, 0xc9cb8b, 0xc19768, 0xc1d1df]
+    const index = Math.max(0, SEASONS.indexOf(e?.season))
+    this._seasonTint.set(colors[index]).lerp(this._seasonNext.set(colors[(index + 1) % 4]), e?.seasonProgress ?? 0)
+    const amount = e?.enabled && !e.unavailable ? 0.22 : 0
+    const tintMaterial = material => {
+      if (!material?.color) return
+      if (!this._seasonBases.has(material)) this._seasonBases.set(material, material.color.clone())
+      material.color.copy(this._seasonBases.get(material)).lerp(this._seasonTint, amount)
+    }
+    tintMaterial(this.terrain?.material)
+    for (const mesh of this.scatterGroup?.children || []) tintMaterial(mesh.material)
+    const snowCover = e?.enabled && !e.unavailable ? e.snowCover || 0 : 0
+    this.terrain?.userData.setSnowCover?.(snowCover)
+    this.grass?.setSeasonTint(this._seasonTint, amount * 1.8, snowCover)
+    if (e?.enabled && e.reading) {
+      const wind = e.reading.windDirectionDeg * Math.PI / 180
+      this.grass?.setWind(Math.min(1, e.reading.windSpeedMs / 15), Math.sin(wind), Math.cos(wind))
+    } else this.grass?.setWind(0.6, 1, 0.35)
+  }
+
   // ── per-frame ───────────────────────────────────────────────────────────────────────
 
   update(dt, elapsed, focus) {
@@ -1017,6 +1049,7 @@ export class Colony {
     const cycled = this.sky.update(dt, elapsed, this.camera)
     if (cycled) this.settings.values.timeOfDay = this.sky.time
 
+    this._applyEnvironment()
     const night = this.sky.nightFactor ?? 0
     buildingUniforms.uNight.value = night
     // One write turns every rotor in the colony.
@@ -1029,7 +1062,7 @@ export class Colony {
     this.indicators.update(this.astronauts.agents, elapsed, (a) => this._badgeFor(a))
     this._emit(dt, elapsed)
     this._emitMotes(dt, night)
-    this.particles.ambient(dt, this.camera, this.planet, night, (x, z) => this.surfaceAt(x, z))
+    this.particles.ambient(dt, this.camera, this.planet, night, (x, z) => this.surfaceAt(x, z), this.environment, this.sky.focus)
     this.particles.update(dt)
     this.water?.update(dt, elapsed, this.camera, night, this.sky.sunDir)
     this.grass?.update(dt, elapsed)

@@ -1,3 +1,4 @@
+import { createWeatherService } from './weather.mjs'
 import { readFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -18,6 +19,9 @@ import {
   terminalNew as harnessTerminalNew,
   terminalOpen as harnessTerminalOpen,
 } from './scan.mjs'
+
+let weatherService = createWeatherService()
+export function setWeatherService(service) { weatherService = service }
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.MOON_BASE_DATA || path.join(here, '..', 'data')
@@ -510,6 +514,23 @@ export async function apiMiddleware(req, res, next) {
   }
 
   try {
+    if (url.pathname.startsWith('/api/weather/')) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'Use GET for weather requests' })
+      const search = url.pathname === '/api/weather/locations'
+      if (!search && url.pathname !== '/api/weather/current') return send(res, 404, { error: 'Not found' })
+      const allowed = search ? ['q'] : ['latitude', 'longitude']
+      if ([...url.searchParams.keys()].some(key => !allowed.includes(key)) || allowed.some(key => url.searchParams.getAll(key).length !== 1)) {
+        return send(res, 400, { error: 'Invalid weather parameters' })
+      }
+      try {
+        if (search) return send(res, 200, { locations: await weatherService.locations(url.searchParams.get('q')) })
+        const raw = allowed.map(key => url.searchParams.get(key))
+        if (raw.some(v => !v.trim() || !Number.isFinite(Number(v))) || Math.abs(Number(raw[0])) > 90 || Math.abs(Number(raw[1])) > 180) return send(res, 400, { error: 'Invalid weather coordinates' })
+        return send(res, 200, await weatherService.current(...raw.map(Number)))
+      } catch (err) {
+        return send(res, err.status || 502, { error: err.status ? err.message : 'Weather is unavailable', retryAfter: err.retryAfter || 60000 })
+      }
+    }
     if (url.pathname === '/api/threads' && req.method === 'GET') {
       const threads = await reconcileArchived(await scanThreads())
       // A harness that is present but cannot read its own store says so here, rather than

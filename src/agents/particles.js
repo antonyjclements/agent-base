@@ -1,3 +1,4 @@
+import { ambientWeather } from '../world/environment.js'
 import * as THREE from 'three'
 import { curveUniforms } from '../core/curve.js'
 
@@ -20,13 +21,14 @@ const GRAVITY = -3.6
  * pool so it reads as light rather than matter.
  */
 const WEATHER = {
+  rain: { every: 0.012, height: [8, 18], velocity: [0.6, -10, 0.2, 0.2, 0.5], color: [0.65, 0.8, 0.95], size: [0.9, 1.3], life: [1.5, 2], drag: 0, gravity: 0.1, streak: true },
   dust: { every: 0.045, height: [0.4, 5.4], velocity: [1.6, 0.1, 0.7, 1.4, 0], color: [0.78, 0.55, 0.4], size: [0.16, 0.24], life: [3, 6], drag: 0.12, gravity: 0.02 },
   sand: { every: 0.04, height: [0.2, 3.2], velocity: [2.4, 0.15, 0.4, 1.6, 0.1], color: [0.95, 0.8, 0.55], size: [0.12, 0.22], life: [2.5, 5], drag: 0.1, gravity: 0.03 },
   ash: { every: 0.06, height: [1, 7], velocity: [0.5, -0.1, 0.3, 0.8, 0.1], color: [0.45, 0.42, 0.4], size: [0.1, 0.2], life: [4, 8], drag: 0.15, gravity: 0.02 },
   pollen: { every: 0.09, height: [0.4, 4], velocity: [0, 0.2, 0, 0.5, 0.25], color: [0.85, 0.9, 0.55], size: [0.07, 0.11], life: [3, 6], drag: 0.12, gravity: -0.02 },
   petals: { every: 0.05, height: [2.5, 7], velocity: [0.7, -0.25, 0.3, 0.9, 0.2], color: [1.0, 0.7, 0.82], size: [0.13, 0.2], life: [5, 9], drag: 0.22, gravity: 0.06 },
   leaves: { every: 0.07, height: [2.5, 6.5], velocity: [0.8, -0.3, 0.2, 1.0, 0.25], color: [0.9, 0.45, 0.18], size: [0.14, 0.22], life: [4, 8], drag: 0.2, gravity: 0.08 },
-  snow: { every: 0.03, height: [4, 9], velocity: [0.35, -0.55, 0.15, 0.6, 0.15], color: [1, 1, 1], size: [0.11, 0.18], life: [6, 11], drag: 0.05, gravity: 0.08 },
+  snow: { every: 0.02, height: [6, 13], velocity: [0.6, -2.1, 0.2, 1.1, 0.5], color: [1, 1, 1], size: [0.25, 0.4], life: [5, 8], drag: 0.05, gravity: 0.12 },
   spray: { every: 0.1, height: [0.1, 1.2], velocity: [0.3, 0.9, 0.2, 0.8, 0.4], color: [0.95, 0.98, 1.0], size: [0.1, 0.18], life: [1.2, 2.4], drag: 0.6, gravity: 0.25, overWater: true },
   embers: { every: 0.07, height: [0.1, 1.5], velocity: [0.2, 1.1, 0.1, 0.8, 0.5], color: [2.6, 1.1, 0.25], size: [0.06, 0.1], life: [2, 4.5], drag: 0.3, gravity: -0.04, glow: true },
   fireflies: { every: 0.12, height: [0.4, 2.2], velocity: [0, 0.05, 0, 0.5, 0.2], color: [1.6, 2.4, 0.7], size: [0.06, 0.09], life: [3, 6], drag: 0.6, gravity: -0.01, glow: true, nightOnly: true },
@@ -51,11 +53,15 @@ class Pool {
     // Recorded per particle rather than assumed: a plot's deck is a raised slab, so the
     // height a spark bounces off depends entirely on where it was thrown from.
     this.floor = new Float32Array(capacity)
+    this.streak = new Float32Array(capacity)
+    this.weather = new Float32Array(capacity)
     this.alpha = new Float32Array(capacity)
 
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(this.position, 3))
     geo.setAttribute('color', new THREE.BufferAttribute(this.color, 3))
+    geo.setAttribute('aStreak', new THREE.BufferAttribute(this.streak, 1))
+    geo.setAttribute('aWeather', new THREE.BufferAttribute(this.weather, 1))
     geo.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1))
     geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1))
     geo.setDrawRange(0, 0)
@@ -72,18 +78,27 @@ class Pool {
         #include <common>
         #include <fog_pars_vertex>
         attribute float aSize;
+        attribute float aStreak;
+        attribute float aWeather;
+        varying float vStreak;
+        varying float vWeather;
         attribute float aAlpha;
         varying vec3 vColor;
         varying float vAlpha;
         uniform float uScale;
         void main() {
+          vStreak = aStreak;
+          vWeather = aWeather;
           vColor = color;
           vAlpha = aAlpha;
           // Particles are authored in world space, so the bend goes straight on the position.
           vec4 mvPosition = viewMatrix * vec4( bcBend( position ), 1.0 );
           // Perspective-correct point size, clamped so a particle right under the camera
           // cannot blow up into a full-screen quad.
-          gl_PointSize = clamp( aSize * uScale * ( 260.0 / -mvPosition.z ), 1.0, 90.0 );
+          // A subpixel flake or a one-pixel-wide streak disappears in tilt-shift blur.
+          // Keep precipitation readable when zoomed out, without enlarging work sparks.
+          float minimum = mix( 1.0, mix( 6.5, 18.0, aStreak ), aWeather );
+          gl_PointSize = clamp( aSize * uScale * ( 260.0 / -mvPosition.z ), minimum, 90.0 );
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
         }
@@ -93,12 +108,15 @@ class Pool {
         #include <fog_pars_fragment>
         varying vec3 vColor;
         varying float vAlpha;
+        varying float vStreak;
+        varying float vWeather;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
-          float r = length( d );
+          float r = length( d * vec2( mix(1.0, 7.0, vStreak), 1.0 ) );
           if ( r > 0.5 ) discard;
           // Soft core with a fast falloff — reads as a spark rather than a disc.
-          float a = pow( 1.0 - r * 2.0, 1.6 ) * vAlpha;
+          float core = mix( pow( 1.0 - r * 2.0, 1.6 ), 1.0 - smoothstep( 0.28, 0.5, r ), vWeather );
+          float a = mix( core, 1.0 - smoothstep( 0.2, 0.5, r ), vStreak ) * vAlpha;
           gl_FragColor = vec4( vColor, a );
           #include <fog_fragment>
         }
@@ -111,7 +129,7 @@ class Pool {
   }
 
   /** `ground` is the surface this particle was thrown off — a deck, or the terrain. */
-  spawn(x, y, z, vx, vy, vz, r, g, b, size, life, drag = 1.2, gravity = 1, ground = 0) {
+  spawn(x, y, z, vx, vy, vz, r, g, b, size, life, drag = 1.2, gravity = 1, ground = 0, streak = false, weather = false) {
     // A full pool drops the newest particle rather than stalling or growing.
     if (this.count >= this.capacity) return false
     const i = this.count++
@@ -125,6 +143,8 @@ class Pool {
     this.color[i3] = r
     this.color[i3 + 1] = g
     this.color[i3 + 2] = b
+    this.streak[i] = streak ? 1 : 0
+    this.weather[i] = weather ? 1 : 0
     this.size[i] = size
     this.life[i] = life
     this.maxLife[i] = life
@@ -151,6 +171,8 @@ class Pool {
             velocity[a + k] = velocity[b + k]
             this.color[a + k] = this.color[b + k]
           }
+          this.streak[i] = this.streak[last]
+          this.weather[i] = this.weather[last]
           this.size[i] = this.size[last]
           life[i] = life[last]
           maxLife[i] = maxLife[last]
@@ -176,6 +198,7 @@ class Pool {
       // that plot's deck, and a fixed world floor would drop them through it.
       if (position[i3 + 1] < floor[i] && velocity[i3 + 1] < 0) {
         position[i3 + 1] = floor[i]
+        if (this.streak[i]) life[i] = 0
         velocity[i3 + 1] *= -0.32
         velocity[i3] *= 0.6
         velocity[i3 + 2] *= 0.6
@@ -190,6 +213,8 @@ class Pool {
     this.geometry.setDrawRange(0, this.count)
     this.geometry.attributes.position.needsUpdate = true
     this.geometry.attributes.color.needsUpdate = true
+    this.geometry.attributes.aStreak.needsUpdate = true
+    this.geometry.attributes.aWeather.needsUpdate = true
     this.geometry.attributes.aSize.needsUpdate = true
     this.geometry.attributes.aAlpha.needsUpdate = true
   }
@@ -372,9 +397,9 @@ export class Particles {
    * Each kind is one line in the table below: where it starts, how it moves, what it looks
    * like. A planet lists the kinds it wants with a rate, and some only come out at night.
    */
-  ambient(dt, camera, planet, night = 0, groundAt = null) {
+  ambient(dt, camera, planet, night = 0, groundAt = null, environment = null, focus = null) {
     if (!this.enabled) return
-    const weather = planet.weather || (planet.dust ? [{ kind: 'dust', rate: planet.dust }] : null)
+    const weather = ambientWeather(planet, environment)
     if (!weather?.length) return
     const tiers = this.settings.get('particles') === 'full' ? 1 : 0.42
     const timers = this._weatherTimers || (this._weatherTimers = new Map())
@@ -392,37 +417,45 @@ export class Particles {
       }
       timers.set(entry.kind, kind.every / (Math.max(0.01, entry.rate) * tiers * strength))
 
-      const a = Math.random() * Math.PI * 2
-      const r = 8 + Math.random() * 36
-      const x = camera.position.x + Math.cos(a) * r
-      const z = camera.position.z + Math.sin(a) * r
-      const ground = groundAt ? groundAt(x, z) : 0
-      // Things that live near the ground hug it; things that fall start high.
-      const y = ground + kind.height[0] + Math.random() * (kind.height[1] - kind.height[0])
-      if (kind.overWater !== undefined && groundAt && planet.water) {
-        // Spray belongs over the sea; petals and snow do not care.
-        const wet = ground < planet.water.level
-        if (wet !== kind.overWater) continue
+      const precipitation = environment?.enabled && ['rain', 'snow'].includes(entry.kind)
+      const emissions = kind.streak || precipitation ? (this.settings.get('particles') === 'full' ? 10 : 6) : 1
+      const center = environment?.enabled && focus ? focus : camera.position
+      for (let emission = 0; emission < emissions; emission++) {
+        const a = Math.random() * Math.PI * 2
+        const r = 2 + Math.sqrt(Math.random()) * 40
+        const x = center.x + Math.cos(a) * r
+        const z = center.z + Math.sin(a) * r
+        const ground = groundAt ? groundAt(x, z) : 0
+        // Things that live near the ground hug it; things that fall start high.
+        const y = ground + kind.height[0] + Math.random() * (kind.height[1] - kind.height[0])
+        if (kind.overWater !== undefined && groundAt && planet.water) {
+          // Spray belongs over the sea; petals and snow do not care.
+          const wet = ground < planet.water.level
+          if (wet !== kind.overWater) continue
+        }
+        const pool = kind.glow ? this.glow : this.dust
+        if (this.glow.count + this.dust.count >= this.settings.particleBudget * 0.75 || pool.count >= pool.capacity * 0.8) continue
+        const c = kind.color
+        const v = kind.velocity
+        pool.spawn(
+          x,
+          y,
+          z,
+          v[0] + (Math.random() - 0.5) * v[3],
+          v[1] + (Math.random() - 0.5) * v[4],
+          v[2] + (Math.random() - 0.5) * v[3],
+          c[0] * (0.9 + Math.random() * 0.2),
+          c[1] * (0.9 + Math.random() * 0.2),
+          c[2] * (0.9 + Math.random() * 0.2),
+          kind.size[0] + Math.random() * (kind.size[1] - kind.size[0]),
+          kind.life[0] + Math.random() * (kind.life[1] - kind.life[0]),
+          kind.drag,
+          kind.gravity,
+          ground,
+          kind.streak,
+          precipitation
+        )
       }
-      const pool = kind.glow ? this.glow : this.dust
-      const c = kind.color
-      const v = kind.velocity
-      pool.spawn(
-        x,
-        y,
-        z,
-        v[0] + (Math.random() - 0.5) * v[3],
-        v[1] + (Math.random() - 0.5) * v[4],
-        v[2] + (Math.random() - 0.5) * v[3],
-        c[0] * (0.9 + Math.random() * 0.2),
-        c[1] * (0.9 + Math.random() * 0.2),
-        c[2] * (0.9 + Math.random() * 0.2),
-        kind.size[0] + Math.random() * (kind.size[1] - kind.size[0]),
-        kind.life[0] + Math.random() * (kind.life[1] - kind.life[0]),
-        kind.drag,
-        kind.gravity,
-        ground
-      )
     }
   }
 

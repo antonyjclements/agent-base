@@ -1,3 +1,4 @@
+import { buildEnvironment } from './environment.js'
 import { PRESETS, PLANETS_ORDER } from './hud-data.js'
 import { PLANETS } from '../world/planet.js'
 import { TIMES, systemTimeOfDay } from '../world/sky.js'
@@ -247,6 +248,7 @@ export class Hud {
       this._slider('Bloom', 'bloomStrength', 0, 1.6, 0.02, (v) => v.toFixed(2))
     )
     body.appendChild(light)
+    body.appendChild(buildEnvironment(this))
 
     // View.
     const view = group('View')

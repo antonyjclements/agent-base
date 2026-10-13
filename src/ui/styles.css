@@ -1614,3 +1614,18 @@ kbd {
 .tool-legend .codex .sw {
   background: var(--tool-codex, #a9bccf);
 }
+
+/* Weather controls share the settings panel's scrolling and keyboard controls. */
+.environment { margin-top: 18px; }
+.environment h3 { font-size: 12px; margin: 0 0 10px; }
+.environment [hidden] { display: none !important; }
+.environment-note, .environment-summary { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.environment-note { opacity: .75; }
+.environment-summary { white-space: pre-line; }
+.environment-search { display: flex; gap: 6px; }
+.environment-search input { min-width: 0; flex: 1; border: 1px solid #ffffff30; border-radius: 6px; padding: 7px; background: #0003; color: inherit; }
+.environment button { font: inherit; color: inherit; border: 1px solid #ffffff30; border-radius: 6px; padding: 7px; background: #ffffff0a; cursor: pointer; }
+.environment button:focus-visible, .environment input:focus-visible { outline: 2px solid #96cce9; outline-offset: 2px; }
+.environment-results { display: grid; gap: 6px; margin: 8px 0; }
+.environment-results button { text-align: left; overflow-wrap: anywhere; }
+.environment a { color: inherit; }

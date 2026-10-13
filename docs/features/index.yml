@@ -1,4 +1,12 @@
 features:
+  - key: weather-seasons
+    title: Weather and Seasons
+    spec: docs/features/weather-seasons/spec.md
+    status: active
+    tags:
+      - visualization
+      - weather
+      - seasons
   - key: moon-base
     title: Moon Base
     spec: docs/features/moon-base/spec.md

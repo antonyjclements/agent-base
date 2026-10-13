@@ -5,8 +5,8 @@ base. Each repo claims a hex plot, each session is a bot that builds on it, and 
 ones are working, which are waiting on you, and which have gone quiet. Click a bot to open its session, or
 start a new one in a repo from its zone.
 
-It runs on your machine and only reads the tools' own session files. Nothing is uploaded, there is no
-account, and the server answers only your own browser on the same machine.
+It runs on your machine and only reads the tools' own session files. Session data stays on your machine, and the server answers only its own page. Optional city search and live
+weather contact Open-Meteo with a city query or coordinates; they never send session data.
 
 ## Run it
 
@@ -31,7 +31,7 @@ or `npm run moon-base --` in place of `moonbase1`.
 For working on Moon Base itself, `npm run dev` starts the Vite dev server (open http://localhost:5274; do not
 open `index.html` from disk), `npm test` runs the whole test suite, and `npm start` builds the page and serves it.
 
-Your colony layout (which repo sits on which plot, what you archived) is the only thing written, to
+Your colony layout (which repo sits on which plot, what you archived) is written to
 `data/colony.json` in this folder. Deleting it resets the map and touches none of your sessions.
 
 ## What you see
@@ -48,6 +48,55 @@ Your colony layout (which repo sits on which plot, what you archived) is the onl
 
 The bot's design is Moon Base's own. Three looks are built in, chosen with `?look=` on the address:
 `rover` (the default), `lantern` and `dish`. `http://localhost:5274/tools/look-lineup.html` shows them side by side.
+
+## Weather and seasons
+
+Settings → **Weather & seasons** works on every planet, including rain on Mars and snow on Luna.
+It is independent of the time-of-day controls:
+
+- **Off (planet ambience)**, the default, keeps the world's original effects.
+- **Manual** fixes a season and clear, cloudy, foggy, rainy, snowy, or stormy weather.
+- **Simulated cycle** runs through four seasons. A year defaults to 60 active minutes and can be
+  set from 4 to 240 minutes. It pauses while the page is hidden or closed, and across sleep; it
+  remembers its position. A rendering gap over five seconds counts as a pause.
+- **Live seasonal** uses the saved city's date, timezone, and hemisphere, with generated weather.
+  Seasons follow three-month calendar blocks, reversed in the southern hemisphere. After city
+  setup this mode works offline; it is a visual convention, not a regional climate model.
+- **Live actual** follows the saved city's current weather and calendar season. Conditions are
+  model-derived by [Open-Meteo](https://open-meteo.com/), rather than direct station observations.
+  Storms use rain and darker clouds; there are no lightning flashes.
+
+Snow falls in heavier flakes and gradually covers terrain and grass in white patches. Cover builds
+over roughly 20–30 active seconds and fades after snowfall stops, faster in rain. Turning the
+environment Off restores the planet immediately. This visual covering does not change terrain,
+movement or water, and starts fresh after a reload.
+
+Search for a city and choose a result, or explicitly choose **Use my location**. Device location
+is rounded to two decimal places, saved once with its timezone, and never tracked. Denying permission
+leaves city search available. City search sends the query to Open-Meteo's geocoder; actual weather sends
+coordinates to its weather API. The provider also receives normal request metadata, including IP address.
+Neither request contains session text, titles, IDs, repository paths, or colony layout.
+
+Actual weather refreshes every 15 minutes while the page is visible, with shared server caching and
+backoff. When offline, the last valid reading for that city remains, marked **Offline / stale**, with
+separate condition and check times. Conditions older than 30 minutes also show as stale. With no reading,
+the panel says **Weather unavailable** and shows a neutral sky. Switching cities never reuses another
+city's reading. Environment settings, the saved location, and up to eight cached readings live in this
+browser's localStorage, separate from `data/colony.json`. Clear browser site data to remove them.
+
+The free Open-Meteo endpoint needs no API key and is for **noncommercial use**. For commercial use,
+obtain an appropriate subscription and restart Moon Base with:
+
+```sh
+MOON_BASE_WEATHER_TIER=commercial MOON_BASE_WEATHER_API_KEY=your-key moonbase1
+```
+
+The key stays on the local server; do not put it in a URL or browser settings. Invalid commercial
+credentials produce an error without falling back to the free service. See the provider's
+[pricing and limits](https://open-meteo.com/en/pricing) and [terms](https://open-meteo.com/en/terms).
+Weather data is credited to Open-Meteo under CC BY 4.0; city data is credited to
+[GeoNames](https://www.geonames.org/). Credits also appear beside the location controls.
+Cloud and particle settings still control rendered effects; audio settings are unchanged.
 
 ## Working from a terminal
 

@@ -1,4 +1,12 @@
 decisions:
+  - path: docs/decisions/2026-10-11-opt-in-weather-through-fixed-open-meteo-endpoints.md
+    title: Opt-in weather uses fixed Open-Meteo endpoints and keeps session data local
+    date: 2026-10-11
+    status: active
+    tags:
+      - weather
+      - privacy
+      - architecture
   - path: docs/decisions/2026-09-26-opt-in-cmux-screen-status-without-hooks.md
     title: Read matched cmux panes only by opt-in to detect waiting without hooks
     date: 2026-09-26

@@ -3,7 +3,7 @@ import { mergeState } from './merge-state.js'
 async function req(url, options) {
   const res = await fetch(url, options)
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
+  if (!res.ok) throw Object.assign(new Error(body.error || `${res.status} ${res.statusText}`), { retryAfter: body.retryAfter })
   return body
 }
 
@@ -121,3 +121,7 @@ export const terminalLauncher = () => req('/api/terminal-launcher')
 export const terminalCommand = (target) => post('/api/terminal-command', target)
 export const terminalLaunch = (target) => post('/api/terminal-launch', target)
 export const terminalForeground = () => post('/api/terminal-foreground', {})
+
+export const searchWeatherLocations = query => req(`/api/weather/locations?q=${encodeURIComponent(query)}`)
+// @spec WS-009
+export const fetchWeather = (location, signal) => req(`/api/weather/current?latitude=${encodeURIComponent(location.latitude)}&longitude=${encodeURIComponent(location.longitude)}`, { signal })

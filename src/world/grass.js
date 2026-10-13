@@ -360,8 +360,8 @@ export function createGrass({ planet, heightAt, blocked, density = 1, seed = 777
     uTime: { value: 0 },
     uSway: { value: preset.sway * 0.6 },
     uWindDir: { value: new THREE.Vector2(1, 0.35).normalize() },
-    uRoot: { value: preset.root },
-    uTip: { value: preset.tip },
+    uRoot: { value: preset.root.clone() },
+    uTip: { value: preset.tip.clone() },
   }
 
   const material = decorate(
@@ -393,10 +393,17 @@ export function createGrass({ planet, heightAt, blocked, density = 1, seed = 777
   mesh.frustumCulled = false
 
   let clock = 0
+  const snowTint = new THREE.Color(0xeaf3ff)
   return {
     mesh,
     uniforms,
     count: placed,
+    setSeasonTint(tint, amount, snowCover = 0) {
+      uniforms.uRoot.value.copy(preset.root).lerp(tint, amount)
+      uniforms.uTip.value.copy(preset.tip).lerp(tint, amount)
+      uniforms.uRoot.value.lerp(snowTint, snowCover * 0.95)
+      uniforms.uTip.value.lerp(snowTint, snowCover * 0.85)
+    },
     /** Once a frame. Uniform writes only; nothing on the CPU moves. */
     update(dt, elapsed) {
       clock = elapsed !== undefined ? elapsed : clock + (dt || 0)

@@ -1,3 +1,4 @@
+import { ENVIRONMENT_DEFAULTS, normalizeEnvironment } from '../world/environment.js'
 /**
  * Every knob that costs frames, in one place.
  *
@@ -143,6 +144,7 @@ const PARTICLE_BUDGET = { off: 0, low: 900, full: 3000 }
 export const MAX_AGENT_CAP = Math.max(...Object.values(PRESETS).map((p) => p.values.maxAgents || 0))
 
 const DEFAULTS = {
+  ...ENVIRONMENT_DEFAULTS,
   preset: 'balanced',
   ...PRESETS.balanced.values,
 
@@ -230,6 +232,7 @@ export class Settings {
   constructor() {
     const stored = load()
     this.values = { ...DEFAULTS, ...stored }
+    for (const key of Object.keys(ENVIRONMENT_DEFAULTS)) this.values[key] = normalizeEnvironment(key, this.values[key])
     // An existing Low/Potato install should not inherit Balanced's new effect by accident.
     if (!Object.hasOwn(stored, 'ambientOcclusion')) {
       this.values.ambientOcclusion = PRESETS[this.values.preset]?.values.ambientOcclusion ?? DEFAULTS.ambientOcclusion
@@ -256,6 +259,7 @@ export class Settings {
   }
 
   set(key, value) {
+    value = normalizeEnvironment(key, value)
     if (this.values[key] === value) return
     this.values[key] = value
     // Touching any quality knob directly means you are no longer on a named preset.
@@ -293,6 +297,11 @@ export class Settings {
     this._scheduleSave()
   }
 
+  flush() {
+    clearTimeout(this._saveTimer)
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(this.values)) } catch { /* unavailable storage */ }
+  }
+
   _scheduleSave() {
     clearTimeout(this._saveTimer)
     this._saveTimer = setTimeout(() => {
@@ -310,7 +319,7 @@ export class Settings {
    * of thirty times on the way in.
    */
   applyAll(values) {
-    const incoming = { ...values }
+    const incoming = Object.fromEntries(Object.entries(values).filter(([key]) => !(key in ENVIRONMENT_DEFAULTS)))
     // The colony file may predate this setting too (for example, in a fresh browser).
     if (PRESETS[incoming.preset] && !Object.hasOwn(incoming, 'ambientOcclusion')) {
       incoming.ambientOcclusion = PRESETS[incoming.preset].values.ambientOcclusion

@@ -1,3 +1,6 @@
+import { EnvironmentController } from './game/environment-controller.js'
+import { ENVIRONMENT_DEFAULTS } from './world/environment.js'
+import { fetchWeather } from './game/api.js'
 import * as THREE from 'three'
 import './ui/styles.css'
 import { DEFAULT_PRESET, Settings, hasStoredSettings } from './core/settings.js'
@@ -334,6 +337,7 @@ ambience.setPlanet(colony.planet)
 colony.onSound = (name, x, y, z) => ambience.play(name, { x, y, z, kind: colony.fauna.flock?.kind })
 
 const hud = new Hud(app, settings, actions)
+const environment = new EnvironmentController(settings, { current: fetchWeather })
 
 // ── selection ─────────────────────────────────────────────────────────────────────────
 
@@ -1134,8 +1138,10 @@ settings.onChange((changed, scope) => {
   // Kept in the colony file as well as in this browser's own storage. `localStorage` is
   // per *origin*, so a dev server that comes back on a different port looks to the browser
   // like a different site and hands you factory settings — the file does not care.
-  state.settings = { ...settings.values }
-  queueSave()
+  if ([...changed].some(key => !(key in ENVIRONMENT_DEFAULTS))) {
+    state.settings = Object.fromEntries(Object.entries(settings.values).filter(([key]) => !(key in ENVIRONMENT_DEFAULTS)))
+    queueSave()
+  }
   if (scope.render || changed.has('fov')) engine.applySettings()
   if (changed.has('planet')) engine.setPlanetGrade(PLANETS[settings.get('planet')]?.grade)
   colony.onSettingsChanged(changed, scope)
@@ -1157,6 +1163,9 @@ engine.add({
     // The world bends away from wherever the camera is looking, every frame, before the
     // colony projects anything to the screen.
     setCurveView(rig.target, rig.azimuth, settings.get('worldCurve') * CURVE_FULL)
+    const weather = environment.update()
+    colony.setEnvironment(weather)
+    hud.setEnvironment(weather)
     colony.update(dt, elapsed, rig.target)
     // Whatever the camera is orbiting is what should be in focus.
     engine.setFocusDistance(rig.distance)

@@ -632,7 +632,44 @@ export class Sky {
 
     // Fog follows the horizon, or the whole world looks like it is behind glass at night.
     this.scene.fog.color.copy(bottom).lerp(this._c1.set(planet.fog.color), 0.55)
+    this._applyEnvironment()
     this._envDirty = true
+  }
+
+// @spec WS-008
+  setEnvironment(environment) {
+    const signature = [environment?.enabled, environment?.cloud?.toFixed(2), environment?.fog?.toFixed(2), environment?.dark?.toFixed(2), this.settings.get('clouds')].join(':')
+    this.environment = environment
+    if (signature === this._environmentSignature) return
+    this._environmentSignature = signature
+    this.setTime(this.time)
+  }
+
+  _applyEnvironment() {
+    const e = this.environment
+    const enabled = e?.enabled
+    const base = this.planet.clouds
+    this.domeUniforms.uCloudAmount.value = this.settings.get('clouds') === false ? 0 : enabled ? e.cloud : base?.amount ?? 0
+    this.domeUniforms.uCloudColor.value.set(enabled ? 0xb8c3ce : base?.color ?? 0xffffff)
+    this.scene.fog.near = enabled ? this.planet.fog.near * (1 - e.fog * 0.65) : this.planet.fog.near
+    this.scene.fog.far = enabled ? this.planet.fog.far * (1 - e.fog * 0.55) : this.planet.fog.far
+    if (enabled) {
+      // The isometric camera sees the horizon rather than overhead cumulus. Carry
+      // cloud cover into that sky and its bounce light so overcast is visible there.
+      const overcast = this.settings.get('clouds') === false ? 0 : THREE.MathUtils.smoothstep(e.cloud, 0.2, 0.9)
+      const cloudColor = this._c1.set(0xaab6c1).multiplyScalar(THREE.MathUtils.lerp(0.08, 0.8, this.dayFactor))
+      this.domeUniforms.uTop.value.lerp(cloudColor, overcast * 0.75)
+      this.domeUniforms.uHorizon.value.lerp(cloudColor, overcast * 0.85)
+      this.domeUniforms.uDisc.value *= 1 - overcast * 0.95
+      this.domeUniforms.uGlow.value *= 1 - overcast * 0.8
+      this.stars.material.uniforms.uOpacity.value *= 1 - overcast * 0.9
+      this.sun.intensity *= 1 - e.dark
+      this.hemi.intensity *= 1 - e.dark * 0.35
+      this.fill.intensity *= 1 - e.dark * 0.2
+      this.domeUniforms.uTop.value.multiplyScalar(1 - e.dark * 0.6)
+      this.domeUniforms.uHorizon.value.multiplyScalar(1 - e.dark * 0.4)
+      this.scene.fog.color.lerp(this._c1.set(0x8c9ca8), e.fog * 0.35)
+    }
   }
 
   onSettingsChanged(changed) {

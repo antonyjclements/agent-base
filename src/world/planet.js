@@ -562,6 +562,7 @@ export const SKY_MAX_CELLS = 96
  * displacement map sample, no per-frame work — and vertex colours give the surface its
  * mottling for free rather than costing a texture fetch.
  */
+// @spec WS-008
 export function createTerrain(planet, detail, seed = 1337) {
   const segments = DETAIL_SEGMENTS[detail] || DETAIL_SEGMENTS.medium
   const geo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, segments, segments)
@@ -684,6 +685,41 @@ export function createTerrain(planet, detail, seed = 1337) {
       uniforms.uSkyReach.value = reach
     }
   }
+
+  // Compose after the floating-island hook: snow must preserve its clipping and curve.
+  // Blend after vertex colour, since a white material tint alone leaves green terrain green.
+  const snowCover = { value: 0 }
+  const compileTerrain = mat.onBeforeCompile
+  const terrainKey = mat.customProgramCacheKey()
+  mat.onBeforeCompile = function(shader, renderer) {
+    compileTerrain.call(this, shader, renderer)
+    shader.uniforms.uSnowCover = snowCover
+    shader.uniforms.uSnowWaterLevel = { value: planet.water?.level ?? -1e6 }
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n varying vec3 vSnowGround; varying float vSnowUp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vSnowGround = position; vSnowUp = normal.y;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vSnowGround;
+        varying float vSnowUp;
+        uniform float uSnowCover;
+        uniform float uSnowWaterLevel;
+        float snowHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float snowNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(snowHash(i), snowHash(i + vec2(1, 0)), f.x), mix(snowHash(i + vec2(0, 1)), snowHash(i + vec2(1, 1)), f.x), f.y);
+        }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        if (uSnowCover > 0.001) {
+        float snowPatch = snowNoise(vSnowGround.xz * 0.65) * 0.7 + snowNoise(vSnowGround.xz * 2.0) * 0.3;
+        float snowMask = smoothstep(snowPatch - 0.16, snowPatch + 0.16, uSnowCover) * min(1.0, uSnowCover * 4.0);
+        snowMask *= smoothstep(0.35, 0.8, vSnowUp) * step(uSnowWaterLevel + 0.03, vSnowGround.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.88, 0.94, 1.0), snowMask);
+        }
+      `)
+  }
+  mat.customProgramCacheKey = () => `${terrainKey}:snow`
+  mesh.userData.setSnowCover = value => { snowCover.value = THREE.MathUtils.clamp(Number.isFinite(value) ? value : 0, 0, 1) }
 
   // Sampler so anything placed later can sit exactly on the surface.
   mesh.userData.heightAt = (x, z) => sampleHeight(x, z, field, planet)
