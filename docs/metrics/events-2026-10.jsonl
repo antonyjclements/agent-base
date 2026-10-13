@@ -1,0 +1,10 @@
+{"ts":"2026-10-12T01:31:07.936Z","event":"capture","detail":"decision","source":"aw-gate"}
+{"ts":"2026-10-12T01:38:31.424Z","event":"review","detail":"code","source":"aw-gate"}
+{"ts":"2026-10-12T01:38:31.489Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
+{"ts":"2026-10-12T01:53:19.454Z","event":"review","detail":"code","source":"aw-gate"}
+{"ts":"2026-10-12T01:53:19.569Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
+{"ts":"2026-10-12T02:36:44.039Z","event":"review","detail":"code","source":"aw-gate"}
+{"ts":"2026-10-12T02:36:44.161Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
+{"ts":"2026-10-13T14:53:26.847Z","event":"synthesize","detail":null,"source":"aw-gate"}
+{"ts":"2026-10-13T14:54:46.303Z","event":"review","detail":"code","source":"aw-gate"}
+{"ts":"2026-10-13T14:54:46.385Z","event":"check_workflow_compliance","detail":null,"source":"aw-gate"}
